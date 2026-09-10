@@ -20,6 +20,8 @@
  * 桌面寬度渲染再縮小，整個介面變成一團看不清的小字。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { openDatabase } from '../src/db/index.js';
+import { exportAll } from '../src/services/repository.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +33,22 @@ const stripModule = (src) => src
   .replace(/^import[^;]*;\s*$/gm, '')
   .replace(/^export /gm, '')
   .trim();
+
+/**
+ * 內建名冊與點位：第一次打開就有東西可用，不用手動建 42 個點位、69 個人。
+ * 直接從 src/db/seed.sql 產生，不另外維護一份，避免兩邊走鐘。
+ */
+function buildSeed() {
+  const db = openDatabase(':memory:', { seed: true });
+  const dump = exportAll(db);
+  db.close();
+  return {
+    staff: dump.staff.map(({ staff_id: id, name, staff_group: group, role, sort_order: order }) => ({
+      staff_id: id, name, staff_group: group, role, is_active: true, sort_order: order,
+    })),
+    items: dump.items,
+  };
+}
 
 const DOMAIN_FILES = ['constants.js', 'week.js', 'fairness.js', 'scheduler.js', 'planX.js'];
 const domain = DOMAIN_FILES
@@ -105,7 +123,11 @@ app = `${app.slice(0, apiStart)}/* ---------- 提示 ---------- */\n\n${app.slic
 const html = read('public', 'index.html');
 const body = html.slice(html.indexOf('<body>') + '<body>'.length, html.indexOf('<script src="./app.js"')).trim();
 
-const script = [domain, read('web', 'store.js'), read('web', 'services.js'), read('web', 'dispatch.js'), app].join('\n\n');
+const seed = buildSeed();
+const seedSrc = `/* ===== 內建名冊與點位（來自 src/db/seed.sql） ===== */\nconst BUILT_IN_SEED = ${JSON.stringify(seed)};`;
+
+const script = [seedSrc, domain, read('web', 'store.js'), read('web', 'services.js'),
+  read('web', 'dispatch.js'), app].join('\n\n');
 
 const HEAD = `<title>雙板排班</title>
 <meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、Plan B 雙層備援。">
@@ -167,3 +189,4 @@ writeFileSync(artifactTarget, artifactHtml);
 const kb = (text) => `${(Buffer.byteLength(text) / 1024).toFixed(0)} KB`;
 console.log(`已產生 ${pagesTarget}（${kb(standaloneHtml)}，完整 HTML 文件）`);
 console.log(`已產生 ${artifactTarget}（${kb(artifactHtml)}，Artifact 用片段）`);
+console.log(`內建名冊：${seed.staff.length} 人、${seed.items.length} 個點位／任務`);

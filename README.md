@@ -23,7 +23,21 @@ node scripts/build-web.mjs   # 產生 docs/index.html
 
 `docs/` 是 GitHub Pages 的標準來源目錄。在 repo 的
 Settings → Pages 選 **Deploy from a branch → 分支 → /docs** 就會有公開網址，
-不用登入、不用伺服器。資料存在瀏覽器本機，**務必用設定裡的匯出備份**。
+不用登入、不用伺服器。
+
+建置會把 `src/db/seed.sql` 的名冊與點位**內嵌進頁面**，第一次打開就有
+69 人、42 個點位可用，不必手動建。之後所有異動都存在瀏覽器本機，
+**務必用設定裡的匯出備份**——清掉瀏覽器資料或換手機就會消失。
+
+建置產出兩份，內容相同只差外框：
+
+| 檔案 | 給誰 | 差別 |
+|---|---|---|
+| `docs/index.html` | 靜態主機 | 完整 HTML 文件，含 viewport meta |
+| `web/artifact.html` | Claude Artifact | 只有內容，平台發布時自己補外框 |
+
+這件事不能混：靜態主機不會補 viewport meta，少了它手機會用 980px
+桌面寬度渲染再縮小，整個介面變成一團小字。
 
 領域邏輯（`src/domain`：排班引擎、公平性、Plan X）本來就是純函式、不碰資料庫，
 兩種跑法共用同一份。只有資料層不同：

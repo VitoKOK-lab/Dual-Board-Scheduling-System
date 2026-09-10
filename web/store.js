@@ -62,7 +62,11 @@ async function saveWeek(week) {
   if (STATE.weeks[week]) await writeDoc(`weeks/${week}`, STATE.weeks[week]);
 }
 
-/** 開機：連上 db（若有），載入設定。 */
+/**
+ * 開機：連上 db（若有），載入設定。
+ * 完全沒有存過任何東西時（第一次打開）用內建的名冊與點位起頭，
+ * 不然使用者一進來要手動建 42 個點位、69 個人。
+ */
 async function initStore() {
   try { remoteDb = await window.claude?.use?.('db') ?? null; } catch { remoteDb = null; }
 
@@ -72,8 +76,24 @@ async function initStore() {
     STATE.items = config.items ?? [];
     STATE.fairness = config.fairness ?? {};
     STATE.nextIds = { staff: 1, item: 1, detail: 1, absence: 1, ...(config.nextIds ?? {}) };
+    return { synced: Boolean(remoteDb), seeded: false };
   }
-  return { synced: Boolean(remoteDb) };
+
+  if (typeof BUILT_IN_SEED !== 'undefined' && BUILT_IN_SEED) {
+    STATE.staff = clone(BUILT_IN_SEED.staff);
+    STATE.items = clone(BUILT_IN_SEED.items);
+    STATE.fairness = Object.fromEntries(STATE.staff.map((s) => [s.staff_id, blankStat()]));
+    STATE.nextIds = {
+      staff: Math.max(0, ...STATE.staff.map((s) => s.staff_id)) + 1,
+      item: Math.max(0, ...STATE.items.map((i) => i.item_id)) + 1,
+      detail: 1,
+      absence: 1,
+    };
+    await saveConfig();
+    return { synced: Boolean(remoteDb), seeded: true };
+  }
+
+  return { synced: Boolean(remoteDb), seeded: false };
 }
 
 async function ensureWeekLoaded(week) {
