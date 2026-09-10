@@ -11,6 +11,31 @@
 
 ---
 
+## 兩種跑法
+
+**伺服器版**（本機或內網，資料存在 SQLite）：見下方快速開始。
+
+**單頁版**（`web/dual-board.html`，可直接放上靜態主機或 Artifact）：
+
+```bash
+node scripts/build-web.mjs   # 產生 web/dual-board.html
+```
+
+領域邏輯（`src/domain`：排班引擎、公平性、Plan X）本來就是純函式、不碰資料庫，
+兩種跑法共用同一份。只有資料層不同：
+
+| | 伺服器版 | 單頁版 |
+|---|---|---|
+| 儲存 | SQLite（`src/db`） | Artifact 雲端儲存，退回瀏覽器本機 |
+| 資料存取 | `src/services/repository.js` | `web/store.js` |
+| 服務層 | `src/services/scheduleService.js` | `web/services.js` |
+| API | `src/server`（REST） | `web/dispatch.js`（同樣的路徑與回傳格式） |
+| 看板 | `public/app.js` | 同一份，建置時做 5 處修補 |
+
+建置腳本的修補如果對不上 `public/app.js` 會直接失敗，不會默默產出壞掉的頁面。
+
+---
+
 ## 快速開始
 
 ```bash
