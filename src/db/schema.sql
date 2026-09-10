@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS location_tasks (
     shift_type         TEXT    NOT NULL CHECK (shift_type IN ('MORNING', 'NOON', 'ALL_WEEK', 'DAILY')),
     item_name          TEXT    NOT NULL,
     required_capacity  INTEGER NOT NULL DEFAULT 1 CHECK (required_capacity >= 1),
+    leader_count       INTEGER NOT NULL DEFAULT 0,   -- 本點位必須由帶班組擔任的名額數
     sort_order         INTEGER NOT NULL DEFAULT 0,
     UNIQUE (board_type, shift_type, item_name)
 );
@@ -34,7 +35,8 @@ CREATE TABLE IF NOT EXISTS fairness_stats (
     staff_id                 INTEGER NOT NULL UNIQUE REFERENCES staff (staff_id) ON DELETE CASCADE,
     blackboard_count         INTEGER NOT NULL DEFAULT 0,
     morning_whiteboard_count INTEGER NOT NULL DEFAULT 0,
-    noon_whiteboard_count    INTEGER NOT NULL DEFAULT 0
+    noon_whiteboard_count    INTEGER NOT NULL DEFAULT 0,
+    standby_count            INTEGER NOT NULL DEFAULT 0   -- 擔任 Plan Y 預備隊的次數，用於輪替待命權
 );
 
 -- 4. 週班表主表
@@ -55,7 +57,8 @@ CREATE TABLE IF NOT EXISTS schedule_items (
     day_of_week        INTEGER CHECK (day_of_week BETWEEN 1 AND 5),  -- NULL = 全週職務 / 預備隊
     is_plan_b_standby  INTEGER NOT NULL DEFAULT 0 CHECK (is_plan_b_standby IN (0, 1)),
     is_override        INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
-    slot_index         INTEGER NOT NULL DEFAULT 0        -- 同點位內第幾個名額，供前端穩定排序
+    slot_index         INTEGER NOT NULL DEFAULT 0,       -- 同點位內第幾個名額，供前端穩定排序
+    slot_role          TEXT    NOT NULL DEFAULT 'MEMBER' CHECK (slot_role IN ('LEADER', 'MEMBER'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_items_schedule ON schedule_items (schedule_id);
@@ -87,6 +90,7 @@ CREATE TABLE IF NOT EXISTS fairness_ledger (
     blackboard_delta INTEGER NOT NULL DEFAULT 0,
     morning_delta    INTEGER NOT NULL DEFAULT 0,
     noon_delta       INTEGER NOT NULL DEFAULT 0,
+    standby_delta    INTEGER NOT NULL DEFAULT 0,
     applied_at    TEXT NOT NULL,
     UNIQUE (schedule_id, staff_id)
 );

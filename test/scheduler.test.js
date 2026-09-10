@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateWeeklyPlan } from '../src/domain/scheduler.js';
-import { BOARD, SHIFT, WARNING, WEEK_DAYS } from '../src/domain/constants.js';
+import { BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT, WARNING, WEEK_DAYS } from '../src/domain/constants.js';
 import { indexItems, makeItems, makeStaff } from './helpers.js';
 
 const WEEK = '2026-09-07';
@@ -186,4 +186,98 @@ test('週別輪轉：不同週的平手順序會位移，避免固定同一批�
 
 test('缺少 weekStartDate 時直接拋錯', () => {
   assert.throws(() => generateWeeklyPlan({ staff: makeStaff(5), items: makeItems() }), /weekStartDate/);
+});
+
+// ---------------------------------------------------------------
+// 帶班制（高二帶高一）：白板每點第 1 個名額是帶班位
+// ---------------------------------------------------------------
+
+test('帶班位一律由帶班組擔任，一般位一律由被帶組擔任', () => {
+  const { plan, byId } = run({ staff: makeStaff(30) });
+  const groupOf = new Map(makeStaff(30).map((s) => [s.staff_id, s.staff_group]));
+
+  for (const a of placed(plan)) {
+    const item = byId.get(a.item_id);
+    if (item.board_type !== BOARD.WHITEBOARD) continue;
+    if (a.slot_role === 'LEADER') {
+      assert.equal(groupOf.get(a.staff_id), LEADER_GROUP, `帶班位被 ${groupOf.get(a.staff_id)} 佔用`);
+    } else {
+      assert.equal(groupOf.get(a.staff_id), MEMBER_GROUP, `一般位被 ${groupOf.get(a.staff_id)} 佔用`);
+    }
+  }
+});
+
+test('帶班組不足時，帶班位留空並回報 NO_LEADER，絕不由被帶組頂替', () => {
+  // 只有 1 位帶班組，但每天早修有 4 個點位各需 1 位帶班
+  const staff = makeStaff(30, { leaders: 1 });
+  const { plan, byId } = run({ staff });
+  const groupOf = new Map(staff.map((s) => [s.staff_id, s.staff_group]));
+
+  const leaderGaps = plan.assignments.filter((a) => a.slot_role === 'LEADER' && a.staff_id == null);
+  assert.ok(leaderGaps.length > 0, '帶班組不足時應留下空缺');
+  assert.ok(plan.warnings.some((w) => w.code === WARNING.NO_LEADER));
+
+  for (const a of placed(plan)) {
+    if (byId.get(a.item_id).board_type !== BOARD.WHITEBOARD) continue;
+    if (a.slot_role === 'LEADER') assert.equal(groupOf.get(a.staff_id), LEADER_GROUP);
+  }
+});
+
+test('被帶組不足時，一般位才放寬給帶班組並標記', () => {
+  // 帶班組充裕、被帶組極少
+  const staff = makeStaff(12, { leaders: 10 });
+  const { plan, byId } = run({ staff });
+  const groupOf = new Map(staff.map((s) => [s.staff_id, s.staff_group]));
+
+  const relaxed = placed(plan).filter((a) => byId.get(a.item_id).board_type === BOARD.WHITEBOARD
+    && a.slot_role === 'MEMBER' && groupOf.get(a.staff_id) === LEADER_GROUP);
+  assert.ok(relaxed.length > 0, '被帶組不足時一般位應由帶班組頂替');
+  assert.ok(plan.warnings.some((w) => w.code === WARNING.CONSTRAINT_RELAXED));
+});
+
+test('Plan Y 預備隊只從被帶組挑選，且整週完全不排班（含黑板）', () => {
+  const { plan } = run({ staff: makeStaff(30) });
+  const groupOf = new Map(makeStaff(30).map((s) => [s.staff_id, s.staff_group]));
+  const assigned = new Set(placed(plan).map((a) => a.staff_id));
+
+  assert.ok(plan.standby.length >= 2);
+  for (const id of plan.standby) {
+    assert.equal(groupOf.get(id), MEMBER_GROUP);
+    assert.ok(!assigned.has(id), '預備隊不應出現在任何名額，包含黑板任務');
+  }
+});
+
+test('待命權輪替：擔任過預備隊者，下次會讓給待命次數更少的人', () => {
+  const staff = makeStaff(30);
+  const members = staff.filter((s) => s.staff_group === MEMBER_GROUP);
+  const rested = members.slice(0, 3).map((s) => s.staff_id);
+
+  // 這 3 人已待命過 1 次，且累計工作量最低（若只看工作量會再度被選中）
+  const stats = new Map(staff.map((s) => [s.staff_id, {
+    blackboard_count: 0,
+    morning_whiteboard_count: rested.includes(s.staff_id) ? 0 : 10,
+    noon_whiteboard_count: 0,
+    standby_count: rested.includes(s.staff_id) ? 1 : 0,
+  }]));
+
+  const { plan } = run({ staff, stats });
+  for (const id of rested) {
+    assert.ok(!plan.standby.includes(id), '待命次數較多的人不應再次被選為預備隊');
+  }
+});
+
+test('待命次數相同時，讓累計工作量最重的人休息', () => {
+  const staff = makeStaff(30);
+  const members = staff.filter((s) => s.staff_group === MEMBER_GROUP);
+  const busiest = members[members.length - 1].staff_id;
+
+  const stats = new Map(staff.map((s) => [s.staff_id, {
+    blackboard_count: 0,
+    morning_whiteboard_count: s.staff_id === busiest ? 99 : 1,
+    noon_whiteboard_count: 0,
+    standby_count: 0,
+  }]));
+
+  const { plan } = run({ staff, stats });
+  assert.ok(plan.standby.includes(busiest), '負擔最重者應優先獲得待命週');
 });

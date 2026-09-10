@@ -4,15 +4,25 @@
  * 純函式：輸入人員 / 點位字典 / 公平性統計 / 公差事件，輸出整週指派結果。
  * 不碰資料庫、不依賴時間，因此可完整單元測試與回放。
  *
- * 執行順序（規格 §4.1 ~ §4.4）：
- *   A. 黑板全週職務（交接、值日生）
- *   B. 黑板每日職務（餐車、早修升旗、午休回來）
- *   C. 白板早修矩陣
- *   D. 白板午休矩陣（硬性限制：同人當日早修點位 ≠ 午休點位）
- *   E. Plan Y 預備隊
+ * 執行順序：
+ *   A. Plan Y 預備隊 —— 最先選，被選中者整週完全不排班，真正待命
+ *   B. 黑板全週職務（交接、值日生）
+ *   C. 黑板每日職務（餐車、早修升旗、午休回來）
+ *   D. 白板早修矩陣
+ *   E. 白板午休矩陣（硬性限制：同人當日早修點位 ≠ 午休點位）
+ *
+ * 帶班制（校內既有的高二帶高一）：
+ *   白板每個點位的第 1 個名額是「帶班位」，只有帶班組（高二）能站，
+ *   排不出來就留空缺，絕不由被帶組頂替——這是硬性規定。
+ *   其餘名額為「一般位」，以被帶組（高一）為主，人力不足時才放寬。
+ *
+ * 因為兩種名額的候選池不重疊，公平性自然是分組各自累計。
  */
 
-import { BOARD, SHIFT, STANDBY_MAX, STANDBY_MIN, WARNING, WEEK_DAYS } from './constants.js';
+import {
+  BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT, SLOT_ROLE,
+  STANDBY_MAX, STANDBY_MIN, WARNING, WEEK_DAYS,
+} from './constants.js';
 import { DIMENSION, LoadTracker, buildTieRanks, comparatorFor, standbyComparator } from './fairness.js';
 import { dayOfWeekFor } from './week.js';
 
@@ -106,12 +116,32 @@ export function generateWeeklyPlan({
   const warn = (code, detail) => warnings.push({ code, ...detail });
 
   // ---------------------------------------------------------------
-  // A. 黑板 — 全週固定職務（交接、值日生），各 1 人、1 週 1 次
+  // A. Plan Y — 靜態預備隊（最先選，被選中者整週完全不排班）
+  //    依「擔任預備隊次數」輪替待命權：待命最少者優先，
+  //    平手時讓累計負擔最重的人休息。只從被帶組挑選。
   // ---------------------------------------------------------------
+  const wanted = Math.min(Math.max(standbyCount, STANDBY_MIN), STANDBY_MAX);
+  const standbyPool = pool
+    .filter((s) => s.staff_group === MEMBER_GROUP)
+    .filter((s) => !WEEK_DAYS.some((d) => state.isAbsent(s.staff_id, d)))
+    .sort(standbyComparator(tracker, tieRanks));
+  const standby = standbyPool.slice(0, wanted).map((s) => s.staff_id);
+  const standbySet = new Set(standby);
+
+  if (standby.length < STANDBY_MIN) {
+    warn(WARNING.STANDBY_SHORT, { available: standby.length, required: STANDBY_MIN });
+  }
+
+  // ---------------------------------------------------------------
+  // B. 黑板 — 全週固定職務（交接、值日生），各 1 人、1 週 1 次
+  // ---------------------------------------------------------------
+  // 預備隊整週待命，黑板任務也不排
+  const dutyPool = pool.filter((s) => !standbySet.has(s.staff_id));
+
   for (const item of selectItems(items, BOARD.BLACKBOARD, SHIFT.ALL_WEEK)) {
     for (let slot = 0; slot < item.required_capacity; slot += 1) {
       const { staff: chosen, relaxed } = pickCandidate(
-        pool,
+        dutyPool,
         [
           // 硬性：未擔任其他全週職務；軟性：整週皆可出勤
           (s) => !state.allWeekHolders.has(s.staff_id) && !state.isAbsentAnyDay(s.staff_id),
@@ -139,7 +169,7 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // B. 黑板 — 每日輪替職務（餐車、早修升旗、午休回來）
+  // C. 黑板 — 每日輪替職務（餐車、早修升旗、午休回來）
   // ---------------------------------------------------------------
   const dailyItems = selectItems(items, BOARD.BLACKBOARD, SHIFT.DAILY);
   for (const day of WEEK_DAYS) {
@@ -147,7 +177,7 @@ export function generateWeeklyPlan({
     for (const item of dailyItems) {
       for (let slot = 0; slot < item.required_capacity; slot += 1) {
         const { staff: chosen, relaxed } = pickCandidate(
-          pool,
+          dutyPool,
           [
             // 硬性：當日可出勤、當日尚未有黑板任務；軟性：非全週職務持有者
             (s) => !state.isAbsent(s.staff_id, day) && !taken.has(s.staff_id) && !state.allWeekHolders.has(s.staff_id),
@@ -176,78 +206,68 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // C. 白板 — 早修矩陣
+  // D / E. 白板矩陣：每點先排帶班位，再排一般位
   // ---------------------------------------------------------------
-  const morningItems = selectItems(items, BOARD.WHITEBOARD, SHIFT.MORNING);
-  for (const day of WEEK_DAYS) {
-    const placed = state.morningByDay.get(day);
-    for (const item of morningItems) {
-      for (let slot = 0; slot < item.required_capacity; slot += 1) {
-        const { staff: chosen } = pickCandidate(
-          pool,
-          [
-            // 硬性：當日可出勤、當日尚未站早修點位（一人一天一點）
-            (s) => !state.isAbsent(s.staff_id, day) && !placed.has(s.staff_id),
-          ],
-          morningCmp,
-        );
+  const leaderPool = pool.filter((s) => s.staff_group === LEADER_GROUP);
+  const memberPool = pool.filter((s) => s.staff_group === MEMBER_GROUP && !standbySet.has(s.staff_id));
 
-        if (!chosen) {
-          warn(WARNING.UNDERSTAFFED, { item_id: item.item_id, item_name: item.item_name, day_of_week: day });
-          assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
-          continue;
+  const shifts = [
+    { shift: SHIFT.MORNING, dimension: DIMENSION.MORNING, comparator: morningCmp, placedBy: state.morningByDay, otherBy: state.noonByDay },
+    { shift: SHIFT.NOON, dimension: DIMENSION.NOON, comparator: noonCmp, placedBy: state.noonByDay, otherBy: state.morningByDay },
+  ];
+
+  for (const { shift, dimension, comparator, placedBy, otherBy } of shifts) {
+    for (const item of selectItems(items, BOARD.WHITEBOARD, shift)) {
+      const leaderSlots = Math.min(item.leader_count ?? 0, item.required_capacity);
+
+      for (const day of WEEK_DAYS) {
+        const placed = placedBy.get(day);
+        const other = otherBy.get(day);
+
+        // 同日不重複站點、同日早修點位 ≠ 午休點位
+        const available = (s) => !state.isAbsent(s.staff_id, day)
+          && !placed.has(s.staff_id)
+          && other.get(s.staff_id) !== item.item_name;
+
+        for (let slot = 0; slot < item.required_capacity; slot += 1) {
+          const isLeaderSlot = slot < leaderSlots;
+          const role = isLeaderSlot ? SLOT_ROLE.LEADER : SLOT_ROLE.MEMBER;
+
+          // 帶班位：只從帶班組挑，永不放寬（排不出來就留空缺）
+          // 一般位：被帶組優先，人力不足時才放寬到帶班組並標記
+          let { staff: chosen } = pickCandidate(
+            isLeaderSlot ? leaderPool : memberPool, [available], comparator,
+          );
+          let relaxed = false;
+          if (!chosen && !isLeaderSlot) {
+            ({ staff: chosen } = pickCandidate(leaderPool, [available], comparator));
+            relaxed = Boolean(chosen);
+          }
+
+          if (!chosen) {
+            warn(isLeaderSlot ? WARNING.NO_LEADER : WARNING.UNDERSTAFFED, {
+              item_id: item.item_id, item_name: item.item_name, day_of_week: day, slot_role: role,
+            });
+            assignments.push({
+              item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot, slot_role: role,
+            });
+            continue;
+          }
+          if (relaxed) {
+            warn(WARNING.CONSTRAINT_RELAXED, {
+              item_id: item.item_id, item_name: item.item_name, day_of_week: day, staff_id: chosen.staff_id,
+              slot_role: role, reason: '一般位由帶班組頂替',
+            });
+          }
+
+          placed.set(chosen.staff_id, item.item_name);
+          tracker.add(chosen.staff_id, dimension);
+          assignments.push({
+            item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot, slot_role: role,
+          });
         }
-
-        placed.set(chosen.staff_id, item.item_name);
-        tracker.add(chosen.staff_id, DIMENSION.MORNING);
-        assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
       }
     }
-  }
-
-  // ---------------------------------------------------------------
-  // D. 白板 — 午休矩陣（硬性限制：同人當日早修點位 ≠ 午休點位）
-  // ---------------------------------------------------------------
-  const noonItems = selectItems(items, BOARD.WHITEBOARD, SHIFT.NOON);
-  for (const day of WEEK_DAYS) {
-    const morningPlaced = state.morningByDay.get(day);
-    const placed = state.noonByDay.get(day);
-    for (const item of noonItems) {
-      for (let slot = 0; slot < item.required_capacity; slot += 1) {
-        const { staff: chosen } = pickCandidate(
-          pool,
-          [
-            (s) => !state.isAbsent(s.staff_id, day)
-              && !placed.has(s.staff_id)
-              && morningPlaced.get(s.staff_id) !== item.item_name,
-          ],
-          noonCmp,
-        );
-
-        if (!chosen) {
-          warn(WARNING.UNDERSTAFFED, { item_id: item.item_id, item_name: item.item_name, day_of_week: day });
-          assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
-          continue;
-        }
-
-        placed.set(chosen.staff_id, item.item_name);
-        tracker.add(chosen.staff_id, DIMENSION.NOON);
-        assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------
-  // E. Plan Y — 靜態預備隊（本週最空閒的 2~3 人）
-  // ---------------------------------------------------------------
-  const wanted = Math.min(Math.max(standbyCount, STANDBY_MIN), STANDBY_MAX);
-  const standbyPool = pool
-    .filter((s) => !WEEK_DAYS.every((d) => state.isAbsent(s.staff_id, d)))
-    .sort(standbyComparator(tracker, tieRanks));
-  const standby = standbyPool.slice(0, wanted).map((s) => s.staff_id);
-
-  if (standby.length < STANDBY_MIN) {
-    warn(WARNING.STANDBY_SHORT, { available: standby.length, required: STANDBY_MIN });
   }
 
   for (const [index, staffId] of standby.entries()) {
@@ -261,6 +281,7 @@ export function generateWeeklyPlan({
     assignments: assignments.map((a) => ({
       is_plan_b_standby: 0,
       is_override: 0,
+      slot_role: SLOT_ROLE.MEMBER,
       ...a,
     })),
     standby,

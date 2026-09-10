@@ -115,10 +115,16 @@ function tagEl(row, boardKind, day) {
   node.dataset.detailId = String(row.detail_id);
   node.dataset.board = boardKind;
 
+  const isLeaderSlot = row.slot_role === 'LEADER';
+  if (isLeaderSlot) {
+    node.classList.add('tag--leader');
+    node.append(el('span', 'tag__role'));
+  }
+
   if (row.staff_id == null) {
     node.classList.add('tag--empty');
-    node.append(icon('i-plus'), el('span', null, '補位'));
-    node.setAttribute('aria-label', '空缺名額，點選以指派人員');
+    node.append(icon('i-plus'), el('span', null, isLeaderSlot ? '缺帶班' : '補位'));
+    node.setAttribute('aria-label', isLeaderSlot ? '帶班位空缺，點選以指派高二組人員' : '空缺名額，點選以指派人員');
     return node;
   }
 
@@ -129,7 +135,8 @@ function tagEl(row, boardKind, day) {
     node.classList.add('tag--absent');
     node.title = '該員當日有公差／請假';
   }
-  node.setAttribute('aria-label', `${name}，點選以換人`);
+  const group = state.staffById.get(row.staff_id)?.staff_group;
+  node.setAttribute('aria-label', `${name}${group ? `（${group}）` : ''}${isLeaderSlot ? '，帶班位' : ''}，點選以換人`);
   return node;
 }
 
@@ -227,8 +234,10 @@ function renderWhiteboard() {
   const accent = state.shift === 'MORNING' ? 'var(--emerald)' : 'var(--amethyst)';
   const items = itemsOf('WHITEBOARD', state.shift);
 
-  const filled = items.reduce((sum, i) => sum + slotsOf(i.item_id, state.day).filter((s) => s.staff_id != null).length, 0);
+  const daySlots = items.flatMap((i) => slotsOf(i.item_id, state.day));
+  const filled = daySlots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
+  const leaderGaps = daySlots.filter((s) => s.slot_role === 'LEADER' && s.staff_id == null).length;
 
   const head = el('div', 'section-head');
   head.append(el('h2', null, `${state.shift === 'MORNING' ? '早修' : '午休'}矩陣 · 週${DAY_NAMES[state.day]}`));
@@ -236,6 +245,8 @@ function renderWhiteboard() {
   meta.append(el('span', 'mono', `${filled}/${total}`), document.createTextNode(' 名額'));
   head.append(meta);
   view.append(head);
+
+  if (leaderGaps > 0) view.append(noticeEl(`本日有 ${leaderGaps} 個帶班位沒有高二組可派`, 'ruby'));
 
   for (const item of items) {
     const slots = slotsOf(item.item_id, state.day);
@@ -257,6 +268,10 @@ function renderWhiteboard() {
     spotHead.append(meter);
     spot.append(spotHead);
 
+    if (item.leader_count > 0) {
+      spot.append(el('p', 'spot__rule', `帶班 ${item.leader_count} 人 · 一般 ${item.required_capacity - item.leader_count} 人`));
+    }
+
     const tags = el('div', 'spot__tags');
     for (const s of slots) tags.append(tagEl(s, state.shift, state.day));
     spot.append(tags);
@@ -276,7 +291,7 @@ function renderStandby() {
   // Plan Y 預備隊
   const planY = el('div', 'card');
   const head = el('div', 'card__title');
-  head.append(el('h3', null, 'Plan Y 本週預備隊'), badge('負擔最輕', 'topaz'));
+  head.append(el('h3', null, 'Plan Y 本週預備隊'), badge('高一組・整週待命', 'topaz'));
   planY.append(head);
 
   if (state.data.standby.length === 0) {
@@ -289,7 +304,7 @@ function renderStandby() {
       tags.append(t);
     }
     planY.append(tags);
-    planY.append(el('p', 'field__hint', '臨時缺人時，Plan X 會優先推薦這幾位。'));
+    planY.append(el('p', 'field__hint', '這幾位整週不排任何點位與黑板任務，臨時缺人時 Plan X 會優先推薦。待命次數會輪替，不會固定同一批人。'));
   }
   view.append(planY);
 
@@ -308,7 +323,8 @@ function renderStandby() {
       const row = el('div', 'rowitem');
       const main = el('div', 'rowitem__main');
       main.append(el('div', 'rowitem__title', g.item_name ?? '未知點位'));
-      main.append(el('div', 'rowitem__sub', g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'));
+      const where = g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週';
+      main.append(el('div', 'rowitem__sub', g.code === 'NO_LEADER' ? `${where} · 缺帶班（限高二組）` : where));
       const btn = el('button', 'btn btn--sm btn--quiet', '補位');
       btn.type = 'button';
       btn.addEventListener('click', () => openPlanX(g.detail_id));
@@ -363,14 +379,25 @@ function renderStandby() {
 /**
  * 輪替均衡度：整數分配下，人人次數相差不超過 1 次即為完全公平（100%）。
  * 差距每多出 1 次，就相對於「最差可能差距」等比扣分。
+ *
+ * Plan Y 預備隊整週待命是刻意安排，不該被算成「被排得比較少」。
+ * 因此計算時把待命週折算回來：每待命一週，補上該維度的每人每週平均值。
+ * 環下顯示的 min–max 仍是實際次數，不做修飾。
  */
-function balance(values) {
-  if (values.length === 0) return { pct: 100, min: 0, max: 0 };
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const spread = max - min;
+function balance(rows, key) {
+  if (rows.length === 0) return { pct: 100, min: 0, max: 0 };
+
+  const counts = rows.map((r) => r[key]);
+  const min = Math.min(...counts);
+  const max = Math.max(...counts);
+
+  const weeks = state.data.published_weeks ?? 0;
+  const perWeek = weeks > 0 ? counts.reduce((sum, n) => sum + n, 0) / (rows.length * weeks) : 0;
+  const adjusted = rows.map((r) => r[key] + (r.standby_count ?? 0) * perWeek);
+
+  const spread = Math.max(...adjusted) - Math.min(...adjusted);
   if (spread <= 1) return { pct: 100, min, max };
-  const worst = Math.max(1, max - 1);
+  const worst = Math.max(1, Math.max(...adjusted) - 1);
   return { pct: Math.max(0, Math.round((1 - (spread - 1) / worst) * 100)), min, max };
 }
 
@@ -379,7 +406,7 @@ function ringEl(label, stat, color) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 76 76');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `${label}均衡度 ${stat.pct}%，最多 ${stat.max} 次、最少 ${stat.min} 次`);
+  svg.setAttribute('aria-label', `${label} ${stat.pct}%，範圍 ${stat.min} 至 ${stat.max} 次`);
   for (const cls of ['ring__track', 'ring__bar']) {
     const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     c.setAttribute('class', cls);
@@ -387,7 +414,7 @@ function ringEl(label, stat, color) {
     if (cls === 'ring__bar') {
       c.setAttribute('stroke', color);
       c.setAttribute('stroke-dasharray', String(RING_C));
-      c.setAttribute('stroke-dashoffset', String(RING_C * (1 - stat.pct / 100)));
+      c.setAttribute('stroke-dashoffset', String(RING_C * (1 - Math.min(100, stat.pct) / 100)));
     }
     svg.append(c);
   }
@@ -403,61 +430,83 @@ function renderStats() {
   view.replaceChildren();
   view.classList.add('stagger');
 
-  const active = state.data.fairness.filter((f) => f.is_active);
-  const card = el('div', 'card');
-  const head = el('div', 'card__title');
-  head.append(el('h3', null, '輪替均衡度'), badge('累計發布結算', 'emerald'));
-  card.append(head);
+  // 帶班位只有高二能站、一般位以高一為主，兩組任務量先天不同，
+  // 因此均衡度一律分組比較，跨組的數字沒有可比性。
+  const groups = state.data.groups.length
+    ? state.data.groups.map((g) => g.name)
+    : [...new Set(state.data.fairness.map((f) => f.staff_group))];
 
-  const rings = el('div', 'rings');
-  rings.append(ringEl('黑板', balance(active.map((f) => f.blackboard_count)), 'var(--sapphire)'));
-  rings.append(ringEl('早修', balance(active.map((f) => f.morning_whiteboard_count)), 'var(--emerald)'));
-  rings.append(ringEl('午休', balance(active.map((f) => f.noon_whiteboard_count)), 'var(--amethyst)'));
-  card.append(rings);
-  card.append(el('p', 'field__hint', '人人次數相差不超過 1 次即為 100%；下方數字為最少與最多次數。'));
-  view.append(card);
+  for (const groupName of groups) {
+    const rows = state.data.fairness.filter((f) => f.staff_group === groupName);
+    if (rows.length === 0) continue;
+    const active = rows.filter((f) => f.is_active);
+
+    const card = el('div', 'card');
+    const head = el('div', 'card__title');
+    head.append(el('h3', null, `${groupName}輪替均衡度`), badge(`${active.length} 人`, 'emerald'));
+    card.append(head);
+
+    const rings = el('div', 'rings');
+    rings.append(ringEl('黑板', balance(active, 'blackboard_count'), 'var(--sapphire)'));
+    rings.append(ringEl('早修', balance(active, 'morning_whiteboard_count'), 'var(--emerald)'));
+    rings.append(ringEl('午休', balance(active, 'noon_whiteboard_count'), 'var(--amethyst)'));
+    card.append(rings);
+    view.append(card);
+  }
+
+  view.append(el('p', 'field__hint', '人人次數相差不超過 1 次即為 100%，Plan Y 待命週已折算回來；環下數字為該組實際的最少與最多次數。'));
 
   const legend = el('div', 'legend');
-  for (const [cls, label] of [['bar--bb', '黑板'], ['bar--am', '早修'], ['bar--pm', '午休']]) {
-    const s = el('span');
-    const i = el('i');
-    i.className = '';
-    i.style.background = cls === 'bar--bb' ? 'var(--sapphire)' : cls === 'bar--am' ? 'var(--emerald)' : 'var(--amethyst)';
-    s.append(i, document.createTextNode(label));
-    legend.append(s);
+  for (const [color, label] of [['var(--sapphire)', '黑板'], ['var(--emerald)', '早修'], ['var(--amethyst)', '午休']]) {
+    const item = el('span');
+    const swatch = el('i');
+    swatch.style.background = color;
+    item.append(swatch, document.createTextNode(label));
+    legend.append(item);
   }
   view.append(legend);
 
-  const listCard = el('div', 'card card--flush');
-  const rows = [...state.data.fairness].sort((a, b) => {
-    const ta = a.blackboard_count + a.morning_whiteboard_count + a.noon_whiteboard_count;
-    const tb = b.blackboard_count + b.morning_whiteboard_count + b.noon_whiteboard_count;
-    return tb - ta || a.staff_id - b.staff_id;
-  });
-  const peak = Math.max(1, ...rows.map((r) => Math.max(r.blackboard_count, r.morning_whiteboard_count, r.noon_whiteboard_count)));
+  for (const groupName of groups) {
+    const rows = [...state.data.fairness.filter((f) => f.staff_group === groupName)]
+      .sort((a, b) => {
+        const ta = a.blackboard_count + a.morning_whiteboard_count + a.noon_whiteboard_count;
+        const tb = b.blackboard_count + b.morning_whiteboard_count + b.noon_whiteboard_count;
+        return tb - ta || a.staff_id - b.staff_id;
+      });
+    if (rows.length === 0) continue;
 
-  for (const r of rows) {
-    const total = r.blackboard_count + r.morning_whiteboard_count + r.noon_whiteboard_count;
-    const btn = el('button', `person${r.is_active ? '' : ' person--off'}`);
-    btn.type = 'button';
+    const head = el('div', 'section-head');
+    head.append(el('h2', null, groupName));
+    head.append(el('span', 'section-head__meta', `${rows.length} 人`));
+    view.append(head);
 
-    const nameWrap = el('div', 'person__name');
-    nameWrap.append(document.createTextNode(r.name));
-    nameWrap.append(el('span', null, `黑板 ${r.blackboard_count}・早修 ${r.morning_whiteboard_count}・午休 ${r.noon_whiteboard_count}`));
-    btn.append(nameWrap);
+    const listCard = el('div', 'card card--flush');
+    const peak = Math.max(1, ...rows.map((r) => Math.max(r.blackboard_count, r.morning_whiteboard_count, r.noon_whiteboard_count)));
 
-    const bars = el('div', 'person__bars');
-    for (const [cls, val] of [['bar--bb', r.blackboard_count], ['bar--am', r.morning_whiteboard_count], ['bar--pm', r.noon_whiteboard_count]]) {
-      const bar = el('i', `bar ${val === 0 ? 'bar--zero' : cls}`);
-      bar.style.height = `${Math.max(3, Math.round((val / peak) * 28))}px`;
-      bars.append(bar);
+    for (const r of rows) {
+      const total = r.blackboard_count + r.morning_whiteboard_count + r.noon_whiteboard_count;
+      const btn = el('button', `person${r.is_active ? '' : ' person--off'}`);
+      btn.type = 'button';
+
+      const nameWrap = el('div', 'person__name');
+      nameWrap.append(document.createTextNode(r.name));
+      const sub = `黑板 ${r.blackboard_count}・早修 ${r.morning_whiteboard_count}・午休 ${r.noon_whiteboard_count}`;
+      nameWrap.append(el('span', null, r.standby_count ? `${sub}・待命 ${r.standby_count}` : sub));
+      btn.append(nameWrap);
+
+      const bars = el('div', 'person__bars');
+      for (const [cls, val] of [['bar--bb', r.blackboard_count], ['bar--am', r.morning_whiteboard_count], ['bar--pm', r.noon_whiteboard_count]]) {
+        const bar = el('i', `bar ${val === 0 ? 'bar--zero' : cls}`);
+        bar.style.height = `${Math.max(3, Math.round((val / peak) * 28))}px`;
+        bars.append(bar);
+      }
+      btn.append(bars);
+      btn.append(el('span', 'person__total mono', String(total)));
+      btn.addEventListener('click', () => openStaffSheet(r));
+      listCard.append(btn);
     }
-    btn.append(bars);
-    btn.append(el('span', 'person__total mono', String(total)));
-    btn.addEventListener('click', () => openStaffSheet(r));
-    listCard.append(btn);
+    view.append(listCard);
   }
-  view.append(listCard);
 }
 
 /* ---------- 共用片段 ---------- */
@@ -530,8 +579,11 @@ async function openPlanX(detailId) {
   const dayLabel = info.day_of_week ? `週${DAY_NAMES[info.day_of_week]}` : '全週';
   const current = info.current_staff_id ? staffName(info.current_staff_id) : '空缺';
 
-  openSheet(`${info.item.item_name}`, `${shiftLabel} · ${dayLabel} · 目前：${current}`, (body) => {
-    body.append(el('p', 'field__hint', 'Plan X 依序推薦 Plan Y 預備隊與負擔最輕者。主管可強制指派，衝突僅提示不阻擋。'));
+  const isLeaderSlot = info.slot_role === 'LEADER';
+  openSheet(`${info.item.item_name}`, `${shiftLabel} · ${dayLabel} · ${isLeaderSlot ? '帶班位' : '一般位'} · 目前：${current}`, (body) => {
+    body.append(el('p', 'field__hint', isLeaderSlot
+      ? '帶班位是硬性規定，只列出高二組人員。主管可強制指派，其他衝突僅提示不阻擋。'
+      : 'Plan X 依序推薦 Plan Y 預備隊與負擔最輕者。主管可強制指派，衝突僅提示不阻擋。'));
 
     for (const c of info.candidates) {
       body.append(candidateRow(detailId, c, shiftLabel));
@@ -543,8 +595,11 @@ async function openPlanX(detailId) {
     const select = el('select');
     select.id = 'staffPick';
     select.append(new Option('— 選擇人員 —', ''));
-    for (const s of state.data.staff.filter((s) => s.is_active)) {
-      select.append(new Option(s.name, String(s.staff_id)));
+    const pickable = state.data.staff
+      .filter((person) => person.is_active)
+      .filter((person) => !isLeaderSlot || person.staff_group === '高二組');
+    for (const person of pickable) {
+      select.append(new Option(`${person.name}（${person.staff_group}）`, String(person.staff_id)));
     }
     select.addEventListener('change', async () => {
       if (!select.value) return;
@@ -579,7 +634,7 @@ function candidateRow(detailId, c, shiftLabel) {
   }
 
   const stat = el('div', 'cand__num mono');
-  stat.textContent = `歷史${shiftLabel} ${c.historyCount} 次 · 本週已排 ${c.weekAssigned}`;
+  stat.textContent = `${c.staff_group} · 歷史${shiftLabel} ${c.historyCount} 次 · 本週已排 ${c.weekAssigned}`;
   main.append(stat);
 
   btn.append(main);
@@ -676,12 +731,21 @@ function openAbsenceSheet() {
 
 function openStaffSheet(person) {
   const total = person.blackboard_count + person.morning_whiteboard_count + person.noon_whiteboard_count;
-  openSheet(person.name, `累計 ${total} 次任務`, (body) => {
+  openSheet(person.name, `${person.staff_group} · 累計 ${total} 次任務 · 待命 ${person.standby_count ?? 0} 次`, (body) => {
+    // 個人面板的環顯示「相對於同組平均」的比例，滿環 = 達到平均
+    const peers = state.data.fairness.filter((f) => f.staff_group === person.staff_group && f.is_active);
+    const avg = (key) => (peers.length ? peers.reduce((sum, f) => sum + f[key], 0) / peers.length : 0);
+    const share = (value, key) => {
+      const mean = avg(key);
+      return { pct: mean > 0 ? Math.min(150, Math.round((value / mean) * 100)) : 100, min: value, max: Math.round(mean) };
+    };
+
     const rings = el('div', 'rings');
-    rings.append(ringEl('黑板', { pct: 100, min: person.blackboard_count, max: person.blackboard_count }, 'var(--sapphire)'));
-    rings.append(ringEl('早修', { pct: 100, min: person.morning_whiteboard_count, max: person.morning_whiteboard_count }, 'var(--emerald)'));
-    rings.append(ringEl('午休', { pct: 100, min: person.noon_whiteboard_count, max: person.noon_whiteboard_count }, 'var(--amethyst)'));
+    rings.append(ringEl('黑板', share(person.blackboard_count, 'blackboard_count'), 'var(--sapphire)'));
+    rings.append(ringEl('早修', share(person.morning_whiteboard_count, 'morning_whiteboard_count'), 'var(--emerald)'));
+    rings.append(ringEl('午休', share(person.noon_whiteboard_count, 'noon_whiteboard_count'), 'var(--amethyst)'));
     body.append(rings);
+    body.append(el('p', 'field__hint', '環代表相對於同組平均的比例，環下為「本人次數／同組平均」。'));
 
     const toggle = el('button', `btn btn--block ${person.is_active ? 'btn--danger' : 'btn--primary'}`);
     toggle.type = 'button';

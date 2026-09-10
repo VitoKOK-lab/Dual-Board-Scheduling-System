@@ -6,7 +6,7 @@
  * 因此本模組只「回報衝突」，不阻擋指派。
  */
 
-import { BOARD, SHIFT, WEEK_DAYS } from './constants.js';
+import { BOARD, LEADER_GROUP, SHIFT, SLOT_ROLE, WEEK_DAYS } from './constants.js';
 import { DIMENSION } from './fairness.js';
 import { dayOfWeekFor } from './week.js';
 
@@ -18,6 +18,8 @@ export const CONFLICT = {
   BLACKBOARD_DOUBLE: 'BLACKBOARD_DOUBLE', // 當日已有其他黑板任務
   ALL_WEEK_HELD: 'ALL_WEEK_HELD',       // 已擔任全週職務
   ALREADY_HERE: 'ALREADY_HERE',         // 已在同一點位
+  NOT_LEADER: 'NOT_LEADER',             // 帶班位需要帶班組（高二）
+  IS_STANDBY: 'IS_STANDBY',             // 本週為 Plan Y 預備隊
 };
 
 export const CONFLICT_LABEL = {
@@ -28,6 +30,8 @@ export const CONFLICT_LABEL = {
   [CONFLICT.BLACKBOARD_DOUBLE]: '當日已有其他黑板任務',
   [CONFLICT.ALL_WEEK_HELD]: '已擔任全週職務',
   [CONFLICT.ALREADY_HERE]: '已在同一點位',
+  [CONFLICT.NOT_LEADER]: `帶班位需要${LEADER_GROUP}`,
+  [CONFLICT.IS_STANDBY]: '本週預備隊',
 };
 
 function shiftOf(item) {
@@ -114,12 +118,17 @@ function absentDays(absences, weekStartDate) {
  * @returns {string[]} 衝突代碼陣列（空陣列代表完全合規）
  */
 export function checkConflicts({
-  candidate, targetItem, targetDay, index, absentSet,
+  candidate, targetItem, targetDay, index, absentSet, slotRole = SLOT_ROLE.MEMBER,
 }) {
   const conflicts = [];
   const id = candidate.staff_id;
 
   if (!candidate.is_active) conflicts.push(CONFLICT.INACTIVE);
+
+  // 帶班位是硬性規定：只有帶班組能站
+  if (slotRole === SLOT_ROLE.LEADER && candidate.staff_group !== LEADER_GROUP) {
+    conflicts.push(CONFLICT.NOT_LEADER);
+  }
   if (targetDay && absentSet.has(`${id}:${targetDay}`)) conflicts.push(CONFLICT.ABSENT);
   if (!targetDay && WEEK_DAYS.some((d) => absentSet.has(`${id}:${d}`))) conflicts.push(CONFLICT.ABSENT);
 
@@ -167,6 +176,7 @@ function dimensionOf(item) {
 export function recommendReplacements({
   staff, targetItem, targetDay, rows, itemsById, stats = new Map(),
   absences = [], weekStartDate, excludeStaffId = null, limit = 8,
+  slotRole = SLOT_ROLE.MEMBER,
 }) {
   const index = buildBoardIndex(rows, itemsById);
   const absentSet = absentDays(absences, weekStartDate);
@@ -180,12 +190,13 @@ export function recommendReplacements({
   const scored = staff
     .filter((s) => s.staff_id !== excludeStaffId)
     .map((s) => {
-      const conflicts = checkConflicts({ candidate: s, targetItem, targetDay, index, absentSet });
+      const conflicts = checkConflicts({ candidate: s, targetItem, targetDay, index, absentSet, slotRole });
       const stat = stats.get(s.staff_id) ?? {};
       const isStandby = index.standby.has(s.staff_id);
       return {
         staff_id: s.staff_id,
         name: s.name,
+        staff_group: s.staff_group,
         is_standby: isStandby,
         conflicts,
         historyCount: stat[statKey] ?? 0,
@@ -193,7 +204,9 @@ export function recommendReplacements({
         reason: isStandby ? 'Plan Y 預備隊' : '負擔較輕',
       };
     })
-    .filter((c) => !c.conflicts.includes(CONFLICT.ALREADY_HERE));
+    // 帶班位是硬性規定，非帶班組直接不列入；已在同一點位者也不列入
+    .filter((c) => !c.conflicts.includes(CONFLICT.ALREADY_HERE))
+    .filter((c) => !c.conflicts.includes(CONFLICT.NOT_LEADER));
 
   scored.sort((a, b) => {
     if ((a.conflicts.length === 0) !== (b.conflicts.length === 0)) return a.conflicts.length === 0 ? -1 : 1;

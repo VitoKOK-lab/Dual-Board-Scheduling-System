@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFLICT, buildBoardIndex, checkConflicts, recommendReplacements } from '../src/domain/planX.js';
-import { BOARD, SHIFT } from '../src/domain/constants.js';
+import { BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT } from '../src/domain/constants.js';
 import { indexItems, makeItems, makeStaff } from './helpers.js';
 
 const WEEK = '2026-09-07';
@@ -194,4 +194,55 @@ test('Plan X：limit 會先保留無衝突者，衝突者被截斷', () => {
   });
   assert.equal(result.length, 3);
   assert.ok(result.every((c) => c.conflicts.length === 0));
+});
+
+test('帶班位的推薦名單只會出現帶班組', () => {
+  const { byId, morning } = fixture();
+  const staff = makeStaff(12);
+  const result = recommendReplacements({
+    staff, targetItem: morning[0], targetDay: 1, rows: [], itemsById: byId,
+    stats: new Map(), absences: [], weekStartDate: WEEK, slotRole: 'LEADER', limit: 20,
+  });
+  assert.ok(result.length > 0);
+  for (const c of result) {
+    assert.equal(c.staff_group, LEADER_GROUP, `${c.name} 不是帶班組卻出現在帶班位候選名單`);
+  }
+});
+
+test('一般位的推薦名單兩組都可以出現', () => {
+  const { byId, morning } = fixture();
+  const staff = makeStaff(12);
+  const result = recommendReplacements({
+    staff, targetItem: morning[0], targetDay: 1, rows: [], itemsById: byId,
+    stats: new Map(), absences: [], weekStartDate: WEEK, slotRole: 'MEMBER', limit: 20,
+  });
+  assert.equal(result.length, staff.length);
+});
+
+test('把被帶組放進帶班位會回報 NOT_LEADER', () => {
+  const { byId, morning } = fixture();
+  const junior = makeStaff(12).find((s) => s.staff_group === MEMBER_GROUP);
+  const conflicts = checkConflicts({
+    candidate: junior,
+    targetItem: morning[0],
+    targetDay: 1,
+    index: buildBoardIndex([], byId),
+    absentSet: new Set(),
+    slotRole: 'LEADER',
+  });
+  assert.ok(conflicts.includes(CONFLICT.NOT_LEADER));
+});
+
+test('帶班組放進一般位不算組別衝突', () => {
+  const { byId, morning } = fixture();
+  const senior = makeStaff(12).find((s) => s.staff_group === LEADER_GROUP);
+  const conflicts = checkConflicts({
+    candidate: senior,
+    targetItem: morning[0],
+    targetDay: 1,
+    index: buildBoardIndex([], byId),
+    absentSet: new Set(),
+    slotRole: 'MEMBER',
+  });
+  assert.ok(!conflicts.includes(CONFLICT.NOT_LEADER));
 });

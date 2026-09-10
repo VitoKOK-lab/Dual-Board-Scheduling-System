@@ -1,35 +1,34 @@
 -- 種子資料：對應規格 §2.1 的實體版面
 -- 黑板：全週固定職務 2 項、每日輪替職務 3 項
 -- 白板：早修 10 點位、午休 10 點位，每點 2~3 人
+-- leader_count = 1：白板每個點位必須有一位高二帶班（硬性）
 
-INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, sort_order) VALUES
-  ('BLACKBOARD', 'ALL_WEEK', '交接',     1, 10),
-  ('BLACKBOARD', 'ALL_WEEK', '值日生',   1, 20),
-  ('BLACKBOARD', 'DAILY',    '餐車',     1, 30),
-  ('BLACKBOARD', 'DAILY',    '早修升旗', 1, 40),
-  ('BLACKBOARD', 'DAILY',    '午休回來', 1, 50),
-
-  ('WHITEBOARD', 'MORNING', '育英樓',   3, 10),
-  ('WHITEBOARD', 'MORNING', '教大',     3, 20),
-  ('WHITEBOARD', 'MORNING', '7-11',     2, 30),
-  ('WHITEBOARD', 'MORNING', '正門',     3, 40),
-  ('WHITEBOARD', 'MORNING', '後門',     2, 50),
-  ('WHITEBOARD', 'MORNING', '活動中心', 2, 60),
-  ('WHITEBOARD', 'MORNING', '圖書館',   2, 70),
-  ('WHITEBOARD', 'MORNING', '體育館',   2, 80),
-  ('WHITEBOARD', 'MORNING', '川堂',     3, 90),
-  ('WHITEBOARD', 'MORNING', '側門',     2, 100),
-
-  ('WHITEBOARD', 'NOON', '育英樓',   3, 10),
-  ('WHITEBOARD', 'NOON', '教大',     2, 20),
-  ('WHITEBOARD', 'NOON', '7-11',     2, 30),
-  ('WHITEBOARD', 'NOON', '正門',     3, 40),
-  ('WHITEBOARD', 'NOON', '後門',     2, 50),
-  ('WHITEBOARD', 'NOON', '活動中心', 3, 60),
-  ('WHITEBOARD', 'NOON', '圖書館',   2, 70),
-  ('WHITEBOARD', 'NOON', '體育館',   2, 80),
-  ('WHITEBOARD', 'NOON', '川堂',     2, 90),
-  ('WHITEBOARD', 'NOON', '側門',     2, 100);
+INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, leader_count, sort_order) VALUES
+  ('BLACKBOARD', 'ALL_WEEK', '交接', 1, 0, 10),
+  ('BLACKBOARD', 'ALL_WEEK', '值日生', 1, 0, 20),
+  ('BLACKBOARD', 'DAILY', '餐車', 1, 0, 30),
+  ('BLACKBOARD', 'DAILY', '早修升旗', 1, 0, 40),
+  ('BLACKBOARD', 'DAILY', '午休回來', 1, 0, 50),
+  ('WHITEBOARD', 'MORNING', '育英樓', 3, 1, 10),
+  ('WHITEBOARD', 'MORNING', '教大', 3, 1, 20),
+  ('WHITEBOARD', 'MORNING', '7-11', 2, 1, 30),
+  ('WHITEBOARD', 'MORNING', '正門', 3, 1, 40),
+  ('WHITEBOARD', 'MORNING', '後門', 2, 1, 50),
+  ('WHITEBOARD', 'MORNING', '活動中心', 2, 1, 60),
+  ('WHITEBOARD', 'MORNING', '圖書館', 2, 1, 70),
+  ('WHITEBOARD', 'MORNING', '體育館', 2, 1, 80),
+  ('WHITEBOARD', 'MORNING', '川堂', 3, 1, 90),
+  ('WHITEBOARD', 'MORNING', '側門', 2, 1, 100),
+  ('WHITEBOARD', 'NOON', '育英樓', 3, 1, 10),
+  ('WHITEBOARD', 'NOON', '教大', 2, 1, 20),
+  ('WHITEBOARD', 'NOON', '7-11', 2, 1, 30),
+  ('WHITEBOARD', 'NOON', '正門', 3, 1, 40),
+  ('WHITEBOARD', 'NOON', '後門', 2, 1, 50),
+  ('WHITEBOARD', 'NOON', '活動中心', 3, 1, 60),
+  ('WHITEBOARD', 'NOON', '圖書館', 2, 1, 70),
+  ('WHITEBOARD', 'NOON', '體育館', 2, 1, 80),
+  ('WHITEBOARD', 'NOON', '川堂', 2, 1, 90),
+  ('WHITEBOARD', 'NOON', '側門', 2, 1, 100);
 
 -- 實際名冊：高一組 47 人、高二組 22 人，合計 69 人
 INSERT INTO staff (name, staff_group, sort_order) VALUES

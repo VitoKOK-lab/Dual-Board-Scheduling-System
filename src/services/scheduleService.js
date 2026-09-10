@@ -1,6 +1,6 @@
 /** 班表服務層：生成、覆寫、補位、發布結算。 */
 
-import { BOARD, SHIFT, WARNING, WEEK_DAYS } from '../domain/constants.js';
+import { BOARD, SHIFT, SLOT_ROLE, WARNING, WEEK_DAYS } from '../domain/constants.js';
 import { generateWeeklyPlan } from '../domain/scheduler.js';
 import { CONFLICT_LABEL, buildBoardIndex, checkConflicts, recommendReplacements } from '../domain/planX.js';
 import { dateForDay, dayOfWeekFor, mondayOf } from '../domain/week.js';
@@ -67,12 +67,13 @@ export function settleFairness(db, scheduleId) {
     `UPDATE fairness_stats
         SET blackboard_count         = MAX(0, blackboard_count + ?),
             morning_whiteboard_count = MAX(0, morning_whiteboard_count + ?),
-            noon_whiteboard_count    = MAX(0, noon_whiteboard_count + ?)
+            noon_whiteboard_count    = MAX(0, noon_whiteboard_count + ?),
+            standby_count            = MAX(0, standby_count + ?)
       WHERE staff_id = ?`,
   );
 
   for (const row of previous) {
-    adjust.run(-row.blackboard_delta, -row.morning_delta, -row.noon_delta, row.staff_id);
+    adjust.run(-row.blackboard_delta, -row.morning_delta, -row.noon_delta, -row.standby_delta, row.staff_id);
   }
   db.prepare('DELETE FROM fairness_ledger WHERE schedule_id = ?').run(scheduleId);
 
@@ -81,29 +82,41 @@ export function settleFairness(db, scheduleId) {
 
   const items = repo.itemsById(db);
   const deltas = new Map();
+  const bump = (staffId) => {
+    if (!deltas.has(staffId)) deltas.set(staffId, { blackboard: 0, morning: 0, noon: 0, standby: 0 });
+    return deltas.get(staffId);
+  };
+
   for (const row of repo.listScheduleItems(db, scheduleId)) {
-    if (row.staff_id == null || row.is_plan_b_standby) continue;
+    if (row.staff_id == null) continue;
+
+    // 預備隊整週待命，計入 standby_count 以輪替待命權，不計入工作量
+    if (row.is_plan_b_standby) {
+      bump(row.staff_id).standby += 1;
+      continue;
+    }
+
     const item = items.get(row.item_id);
     if (!item) continue;
 
-    if (!deltas.has(row.staff_id)) deltas.set(row.staff_id, { blackboard: 0, morning: 0, noon: 0 });
-    const d = deltas.get(row.staff_id);
+    const d = bump(row.staff_id);
     if (item.board_type === BOARD.BLACKBOARD) d.blackboard += 1;
     else if (item.shift_type === SHIFT.MORNING) d.morning += 1;
     else if (item.shift_type === SHIFT.NOON) d.noon += 1;
   }
 
   const insertLedger = db.prepare(
-    `INSERT INTO fairness_ledger (schedule_id, staff_id, blackboard_delta, morning_delta, noon_delta, applied_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO fairness_ledger
+       (schedule_id, staff_id, blackboard_delta, morning_delta, noon_delta, standby_delta, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const ensureStat = db.prepare('INSERT OR IGNORE INTO fairness_stats (staff_id) VALUES (?)');
   const stamp = nowIso();
 
   for (const [staffId, d] of deltas) {
     ensureStat.run(staffId);
-    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.noon, stamp);
-    adjust.run(d.blackboard, d.morning, d.noon, staffId);
+    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.noon, d.standby, stamp);
+    adjust.run(d.blackboard, d.morning, d.noon, d.standby, staffId);
   }
 }
 
@@ -166,6 +179,7 @@ export function overrideAssignment(db, detailId, staffId) {
         targetDay: row.day_of_week,
         index: buildBoardIndex(others, items),
         absentSet,
+        slotRole: row.slot_role,
       });
     }
   }
@@ -220,12 +234,14 @@ export function planXRecommendations(db, detailId, { limit = 8 } = {}) {
     weekStartDate: schedule.week_start_date,
     excludeStaffId: row.staff_id,
     limit,
+    slotRole: row.slot_role,
   });
 
   return {
     detail_id: detailId,
     item: targetItem,
     day_of_week: row.day_of_week,
+    slot_role: row.slot_role,
     current_staff_id: row.staff_id,
     candidates: candidates.map((c) => ({
       ...c,
@@ -246,11 +262,12 @@ export function getWeekView(db, rawWeek) {
 
   const openSlots = rows.filter((r) => r.staff_id == null && !r.is_plan_b_standby);
   const warnings = openSlots.map((r) => ({
-    code: WARNING.UNDERSTAFFED,
+    code: r.slot_role === SLOT_ROLE.LEADER ? WARNING.NO_LEADER : WARNING.UNDERSTAFFED,
     detail_id: r.detail_id,
     item_id: r.item_id,
     item_name: itemMap.get(r.item_id)?.item_name ?? null,
     day_of_week: r.day_of_week,
+    slot_role: r.slot_role,
   }));
 
   return {
@@ -273,6 +290,7 @@ export function getWeekView(db, rawWeek) {
       .map((r) => ({ detail_id: r.detail_id, staff_id: r.staff_id })),
     absences: absencesForWeek(db, weekStartDate),
     fairness: repo.listFairness(db),
+    published_weeks: repo.countPublishedWeeks(db),
     warnings,
   };
 }

@@ -14,6 +14,9 @@ export const DIMENSION = {
   NOON: 'noon',
 };
 
+/** 任務維度（會計入工作量）；standby 另計，不屬於工作量。 */
+export const WORK_DIMENSIONS = [DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.NOON];
+
 /**
  * 以週起始日推導輪轉種子：距 1970-01-01 的天數。
  * 每週前進 7，配合 rotate 讓平手順序逐週位移。
@@ -52,6 +55,7 @@ export class LoadTracker {
         blackboard: base.blackboard_count ?? 0,
         morning: base.morning_whiteboard_count ?? 0,
         noon: base.noon_whiteboard_count ?? 0,
+        standby: base.standby_count ?? 0,
         weekAssigned: 0,
       });
     }
@@ -60,7 +64,7 @@ export class LoadTracker {
   #row(staffId) {
     let row = this.load.get(staffId);
     if (!row) {
-      row = { blackboard: 0, morning: 0, noon: 0, weekAssigned: 0 };
+      row = { blackboard: 0, morning: 0, noon: 0, standby: 0, weekAssigned: 0 };
       this.load.set(staffId, row);
     }
     return row;
@@ -70,6 +74,7 @@ export class LoadTracker {
     return this.#row(staffId)[dimension];
   }
 
+  /** 累計工作量（不含待命次數）。 */
   total(staffId) {
     const r = this.#row(staffId);
     return r.blackboard + r.morning + r.noon;
@@ -114,18 +119,25 @@ export function comparatorFor(dimension, tracker, tieRanks) {
 }
 
 /**
- * 預備隊比較器 —— 規格 §4.4「挑選剩餘權重最低（最空閒）的人」。
- * 先看本週實際被指派幾次，再看歷史總負擔。
+ * 預備隊比較器。
+ *
+ * 預備隊整週不排點位，等於一週的休息，所以「待命權」本身要輪替：
+ *   1. 擔任過預備隊次數最少者優先；
+ *   2. 平手時讓累計工作量最重的人休息；
+ *   3. 再平手用週別輪轉序。
+ *
+ * 若沿用「本週被指派最少者」當標準，被選中的人本週歸零、下週依然最少，
+ * 預備隊會永遠卡在同一批人身上。
  */
 export function standbyComparator(tracker, tieRanks) {
   return (a, b) => {
-    const wa = tracker.weekAssigned(a.staff_id);
-    const wb = tracker.weekAssigned(b.staff_id);
-    if (wa !== wb) return wa - wb;
+    const sa = tracker.get(a.staff_id, 'standby');
+    const sb = tracker.get(b.staff_id, 'standby');
+    if (sa !== sb) return sa - sb;
 
     const ta = tracker.total(a.staff_id);
     const tb = tracker.total(b.staff_id);
-    if (ta !== tb) return ta - tb;
+    if (ta !== tb) return tb - ta;
 
     const ra = tieRanks.get(a.staff_id) ?? a.staff_id;
     const rb = tieRanks.get(b.staff_id) ?? b.staff_id;

@@ -32,7 +32,7 @@ export function setStaffActive(db, staffId, isActive) {
 
 export function listItems(db) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, leader_count, sort_order
        FROM location_tasks ORDER BY board_type, shift_type, sort_order, item_id`,
   ).all();
 }
@@ -46,7 +46,8 @@ export function listFairness(db) {
     `SELECT s.staff_id, s.name, s.staff_group, s.is_active,
             COALESCE(f.blackboard_count, 0)         AS blackboard_count,
             COALESCE(f.morning_whiteboard_count, 0) AS morning_whiteboard_count,
-            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count
+            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count,
+            COALESCE(f.standby_count, 0)            AS standby_count
        FROM staff s LEFT JOIN fairness_stats f ON f.staff_id = s.staff_id
       ORDER BY s.sort_order, s.staff_id`,
   ).all().map((r) => ({ ...r, is_active: !!r.is_active }));
@@ -54,6 +55,11 @@ export function listFairness(db) {
 
 export function fairnessMap(db) {
   return new Map(listFairness(db).map((r) => [r.staff_id, r]));
+}
+
+/** 已發布的週數；用於把預備隊的待命週折算回公平性比較。 */
+export function countPublishedWeeks(db) {
+  return db.prepare("SELECT COUNT(*) AS n FROM weekly_schedules WHERE status = 'PUBLISHED'").get().n;
 }
 
 export function findSchedule(db, weekStartDate) {
@@ -74,7 +80,7 @@ export function createSchedule(db, weekStartDate) {
 export function listScheduleItems(db, scheduleId) {
   return db.prepare(
     `SELECT detail_id, schedule_id, staff_id, item_id, day_of_week,
-            is_plan_b_standby, is_override, slot_index
+            is_plan_b_standby, is_override, slot_index, slot_role
        FROM schedule_items WHERE schedule_id = ?
       ORDER BY day_of_week, item_id, slot_index, detail_id`,
   ).all(scheduleId).map((r) => ({
@@ -94,8 +100,8 @@ export function replaceScheduleItems(db, scheduleId, assignments) {
   db.prepare('DELETE FROM schedule_items WHERE schedule_id = ?').run(scheduleId);
   const insert = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_plan_b_standby, is_override, slot_index)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_plan_b_standby, is_override, slot_index, slot_role)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const a of assignments) {
     insert.run(
@@ -106,6 +112,7 @@ export function replaceScheduleItems(db, scheduleId, assignments) {
       a.is_plan_b_standby ? 1 : 0,
       a.is_override ? 1 : 0,
       a.slot_index ?? 0,
+      a.slot_role ?? 'MEMBER',
     );
   }
 }
