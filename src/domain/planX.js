@@ -6,15 +6,15 @@
  * 因此本模組只「回報衝突」，不阻擋指派。
  */
 
-import { BOARD, ROLE, SHIFT, WEEK_DAYS } from './constants.js';
-import { DIMENSION } from './fairness.js';
+import { BOARD, ROLE, SHIFT, WEEK_DAYS, WHITEBOARD_SHIFTS } from './constants.js';
+import { DIMENSION, DIMENSION_COLUMN } from './fairness.js';
 import { dayOfWeekFor } from './week.js';
 
 export const CONFLICT = {
   INACTIVE: 'INACTIVE',                 // 人員已停用
   ABSENT: 'ABSENT',                     // 當日有公差 / 請假
   DUPLICATE_SHIFT: 'DUPLICATE_SHIFT',   // 當日同時段已有其他點位
-  SAME_LOCATION: 'SAME_LOCATION',       // 當日早修與午休點位重複
+  SAME_LOCATION: 'SAME_LOCATION',       // 當日已站過同一個點位
   BLACKBOARD_DOUBLE: 'BLACKBOARD_DOUBLE', // 當日已有其他黑板任務
   ALL_WEEK_HELD: 'ALL_WEEK_HELD',       // 已擔任全週職務
   ALREADY_HERE: 'ALREADY_HERE',         // 已在同一點位
@@ -25,7 +25,7 @@ export const CONFLICT_LABEL = {
   [CONFLICT.INACTIVE]: '人員已停用',
   [CONFLICT.ABSENT]: '當日有公差／請假',
   [CONFLICT.DUPLICATE_SHIFT]: '當日同時段已有點位',
-  [CONFLICT.SAME_LOCATION]: '當日早修與午休點位重複',
+  [CONFLICT.SAME_LOCATION]: '當日已站過同一點位',
   [CONFLICT.BLACKBOARD_DOUBLE]: '當日已有其他黑板任務',
   [CONFLICT.ALL_WEEK_HELD]: '已擔任全週職務',
   [CONFLICT.ALREADY_HERE]: '已在同一點位',
@@ -45,18 +45,18 @@ function shiftOf(item) {
  */
 export function buildBoardIndex(rows, itemsById) {
   const index = {
-    morning: new Map(),      // day -> Map<staffId, Set<item_name>>
-    noon: new Map(),
+    onShift: new Map(),       // `${shift}:${day}` -> Set<staffId>
+    spots: new Map(),         // day -> Map<staffId, Set<item_name>>
     blackboardDaily: new Map(), // day -> Map<staffId, Set<item_id>>
-    allWeek: new Map(),      // staffId -> Set<item_id>
+    allWeek: new Map(),       // staffId -> Set<item_id>
     standby: new Set(),
-    occupancy: new Map(),    // item_id -> Map<day|'ALL', Set<staffId>>
-    weekAssigned: new Map(), // staffId -> 本週被指派次數
+    occupancy: new Map(),     // item_id -> Map<day|'ALL', Set<staffId>>
+    weekAssigned: new Map(),  // staffId -> 本週被指派次數
   };
   for (const d of WEEK_DAYS) {
-    index.morning.set(d, new Map());
-    index.noon.set(d, new Map());
+    index.spots.set(d, new Map());
     index.blackboardDaily.set(d, new Map());
+    for (const shift of WHITEBOARD_SHIFTS) index.onShift.set(`${shift}:${d}`, new Set());
   }
 
   const push = (map, key, value) => {
@@ -81,21 +81,14 @@ export function buildBoardIndex(rows, itemsById) {
     if (!index.occupancy.has(row.item_id)) index.occupancy.set(row.item_id, new Map());
     push(index.occupancy.get(row.item_id), dayKey, row.staff_id);
 
-    switch (shiftOf(item)) {
-      case SHIFT.MORNING:
-        push(index.morning.get(row.day_of_week), row.staff_id, item.item_name);
-        break;
-      case SHIFT.NOON:
-        push(index.noon.get(row.day_of_week), row.staff_id, item.item_name);
-        break;
-      case SHIFT.DAILY:
-        push(index.blackboardDaily.get(row.day_of_week), row.staff_id, item.item_id);
-        break;
-      case SHIFT.ALL_WEEK:
-        push(index.allWeek, row.staff_id, item.item_id);
-        break;
-      default:
-        break;
+    const shift = shiftOf(item);
+    if (WHITEBOARD_SHIFTS.includes(shift)) {
+      index.onShift.get(`${shift}:${row.day_of_week}`)?.add(row.staff_id);
+      push(index.spots.get(row.day_of_week), row.staff_id, item.item_name);
+    } else if (shift === SHIFT.DAILY) {
+      push(index.blackboardDaily.get(row.day_of_week), row.staff_id, item.item_id);
+    } else if (shift === SHIFT.ALL_WEEK) {
+      push(index.allWeek, row.staff_id, item.item_id);
     }
   }
 
@@ -130,16 +123,16 @@ export function checkConflicts({
   if (occupants?.has(id)) conflicts.push(CONFLICT.ALREADY_HERE);
 
   const shift = shiftOf(targetItem);
-  if (shift === SHIFT.MORNING) {
-    const mine = index.morning.get(targetDay)?.get(id);
-    if (mine && mine.size > 0 && !mine.has(targetItem.item_name)) conflicts.push(CONFLICT.DUPLICATE_SHIFT);
-    const noonNames = index.noon.get(targetDay)?.get(id);
-    if (noonNames?.has(targetItem.item_name)) conflicts.push(CONFLICT.SAME_LOCATION);
-  } else if (shift === SHIFT.NOON) {
-    const mine = index.noon.get(targetDay)?.get(id);
-    if (mine && mine.size > 0 && !mine.has(targetItem.item_name)) conflicts.push(CONFLICT.DUPLICATE_SHIFT);
-    const morningNames = index.morning.get(targetDay)?.get(id);
-    if (morningNames?.has(targetItem.item_name)) conflicts.push(CONFLICT.SAME_LOCATION);
+  if (WHITEBOARD_SHIFTS.includes(shift)) {
+    // 同一時段當日已有別的點位
+    if (index.onShift.get(`${shift}:${targetDay}`)?.has(id) && !occupants?.has(id)) {
+      conflicts.push(CONFLICT.DUPLICATE_SHIFT);
+    }
+    // 當日已站過同名點位（跨時段也算）
+    const mySpots = index.spots.get(targetDay)?.get(id);
+    if (mySpots?.has(targetItem.item_name) && !occupants?.has(id)) {
+      conflicts.push(CONFLICT.SAME_LOCATION);
+    }
   } else if (shift === SHIFT.DAILY) {
     const mine = index.blackboardDaily.get(targetDay)?.get(id);
     if (mine && [...mine].some((itemId) => itemId !== targetItem.item_id)) conflicts.push(CONFLICT.BLACKBOARD_DOUBLE);
@@ -153,10 +146,12 @@ export function checkConflicts({
 }
 
 function dimensionOf(item) {
-  const shift = shiftOf(item);
-  if (shift === SHIFT.MORNING) return DIMENSION.MORNING;
-  if (shift === SHIFT.NOON) return DIMENSION.NOON;
-  return DIMENSION.BLACKBOARD;
+  switch (shiftOf(item)) {
+    case SHIFT.MORNING: return DIMENSION.MORNING;
+    case SHIFT.FLAG: return DIMENSION.FLAG;
+    case SHIFT.NOON: return DIMENSION.NOON;
+    default: return DIMENSION.BLACKBOARD;
+  }
 }
 
 /**
@@ -174,11 +169,7 @@ export function recommendReplacements({
   const index = buildBoardIndex(rows, itemsById);
   const absentSet = absentDays(absences, weekStartDate);
   const dimension = dimensionOf(targetItem);
-  const statKey = {
-    [DIMENSION.BLACKBOARD]: 'blackboard_count',
-    [DIMENSION.MORNING]: 'morning_whiteboard_count',
-    [DIMENSION.NOON]: 'noon_whiteboard_count',
-  }[dimension];
+  const statKey = DIMENSION_COLUMN[dimension];
 
   const scored = staff
     .filter((s) => s.staff_id !== excludeStaffId)

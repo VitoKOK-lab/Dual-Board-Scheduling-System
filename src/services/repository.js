@@ -48,7 +48,7 @@ export function setStaffActive(db, staffId, isActive) {
 
 export function listItems(db) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
        FROM location_tasks ORDER BY board_type, shift_type, sort_order, item_id`,
   ).all();
 }
@@ -62,6 +62,7 @@ export function listFairness(db) {
     `SELECT s.staff_id, s.name, s.staff_group, s.role, s.is_active,
             COALESCE(f.blackboard_count, 0)         AS blackboard_count,
             COALESCE(f.morning_whiteboard_count, 0) AS morning_whiteboard_count,
+            COALESCE(f.flag_whiteboard_count, 0)    AS flag_whiteboard_count,
             COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count,
             COALESCE(f.standby_count, 0)            AS standby_count
        FROM staff s LEFT JOIN fairness_stats f ON f.staff_id = s.staff_id

@@ -1,4 +1,4 @@
-import { BOARD, ROLE, SHIFT } from '../src/domain/constants.js';
+import { BOARD, ROLE, SHIFT, ZONE } from '../src/domain/constants.js';
 
 let nextId = 1;
 
@@ -19,19 +19,22 @@ export function makeStaff(count, { activeAll = true, apprentices = 0 } = {}) {
 export const mastersOf = (staff) => staff.filter((s) => s.role === ROLE.MASTER);
 export const apprenticesOf = (staff) => staff.filter((s) => s.role === ROLE.APPRENTICE);
 
-export function item(board, shift, name, capacity = 1, sortOrder = 0) {
+export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '') {
   return {
     item_id: nextId++,
     board_type: board,
     shift_type: shift,
     item_name: name,
     required_capacity: capacity,
+    zone,
     sort_order: sortOrder,
   };
 }
 
 /** 建立一組貼近實際校園配置的點位字典。 */
-export function makeItems({ morningPoints = 4, noonPoints = 4, capacity = 2 } = {}) {
+export function makeItems({
+  morningPoints = 4, flagPoints = 4, noonPoints = 4, capacity = 2,
+} = {}) {
   nextId = 1;
   const names = ['育英樓', '教大', '7-11', '正門', '後門', '活動中心', '圖書館', '體育館'];
   return [
@@ -41,6 +44,11 @@ export function makeItems({ morningPoints = 4, noonPoints = 4, capacity = 2 } = 
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '早修升旗', 1, 40),
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '午休回來', 1, 50),
     ...names.slice(0, morningPoints).map((n, i) => item(BOARD.WHITEBOARD, SHIFT.MORNING, n, capacity, (i + 1) * 10)),
+    // 升旗分定點與巡查兩區，屬同一時段
+    ...names.slice(0, flagPoints).map((n, i) => item(
+      BOARD.WHITEBOARD, SHIFT.FLAG, n, capacity, (i + 1) * 10,
+      i < Math.ceil(flagPoints / 2) ? ZONE.FIXED : ZONE.PATROL,
+    )),
     ...names.slice(0, noonPoints).map((n, i) => item(BOARD.WHITEBOARD, SHIFT.NOON, n, capacity, (i + 1) * 10)),
   ];
 }

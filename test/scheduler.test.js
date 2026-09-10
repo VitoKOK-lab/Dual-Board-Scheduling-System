@@ -304,3 +304,92 @@ test('待命次數相同時，讓累計工作量最重的人休息', () => {
   const { plan } = run({ staff, stats });
   assert.ok(plan.standby.includes(busiest), '負擔最重者應優先獲得待命週');
 });
+
+// ---------------------------------------------------------------
+// 三個白板時段：早修 → 升旗 → 午休
+// ---------------------------------------------------------------
+
+test('三個時段都會被排班，且升旗的定點與巡查同屬一個時段', () => {
+  const { plan, byId } = run({ staff: makeStaff(30) });
+  const byShift = new Map();
+  for (const a of placed(plan)) {
+    const item = byId.get(a.item_id);
+    if (item.board_type !== BOARD.WHITEBOARD) continue;
+    byShift.set(item.shift_type, (byShift.get(item.shift_type) ?? 0) + 1);
+  }
+  for (const shift of [SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON]) {
+    assert.ok(byShift.get(shift) > 0, `${shift} 沒有任何指派`);
+  }
+
+  const zones = new Set(placed(plan)
+    .map((a) => byId.get(a.item_id))
+    .filter((i) => i.shift_type === SHIFT.FLAG)
+    .map((i) => i.zone));
+  assert.deepEqual([...zones].sort(), ['定點', '巡查'], '升旗應同時涵蓋定點與巡查');
+});
+
+test('硬性限制：同一人同一天在同一時段只站一個點位', () => {
+  const { plan, byId } = run({ staff: makeStaff(30) });
+  for (const shift of [SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON]) {
+    const seen = new Set();
+    for (const a of placed(plan)) {
+      const item = byId.get(a.item_id);
+      if (item.board_type !== BOARD.WHITEBOARD || item.shift_type !== shift) continue;
+      const key = `${a.staff_id}:${a.day_of_week}`;
+      assert.ok(!seen.has(key), `${a.staff_id} 在週${a.day_of_week} 的 ${shift} 被排了兩次`);
+      seen.add(key);
+    }
+  }
+});
+
+test('硬性限制：同一人當天不會重複站同一個點位（跨時段也算）', () => {
+  const { plan, byId } = run({ staff: makeStaff(30) });
+  const seen = new Set();
+  for (const a of placed(plan)) {
+    const item = byId.get(a.item_id);
+    if (item.board_type !== BOARD.WHITEBOARD) continue;
+    const key = `${a.staff_id}:${a.day_of_week}:${item.item_name}`;
+    assert.ok(!seen.has(key), `${a.staff_id} 在週${a.day_of_week} 重複站了 ${item.item_name}`);
+    seen.add(key);
+  }
+});
+
+test('升旗定點與巡查合起來計算名額上限，不會分開放寬', () => {
+  // 12 位師傅；升旗 8 點 × 2 人 = 16 個名額，必然不足
+  const { plan } = run({
+    staff: makeStaff(12),
+    items: makeItems({ morningPoints: 2, flagPoints: 8, noonPoints: 2, capacity: 2 }),
+  });
+  const exceeded = plan.warnings.filter((w) => w.code === WARNING.CAPACITY_EXCEEDED);
+  assert.ok(exceeded.some((w) => w.shift_type === SHIFT.FLAG));
+  assert.equal(exceeded.find((w) => w.shift_type === SHIFT.FLAG).required, 16);
+});
+
+test('升旗次數獨立累計，不會跟早修或午休混在一起', () => {
+  const staff = makeStaff(30);
+  const stats = new Map(staff.map((s) => [s.staff_id, {
+    blackboard_count: 0,
+    morning_whiteboard_count: 0,
+    flag_whiteboard_count: s.staff_id === 30 ? 0 : 50,
+    noon_whiteboard_count: 0,
+    standby_count: 0,
+  }]));
+  const { plan, byId } = run({ staff, stats });
+
+  const flagCounts = new Map();
+  for (const a of placed(plan)) {
+    if (byId.get(a.item_id).shift_type !== SHIFT.FLAG) continue;
+    flagCounts.set(a.staff_id, (flagCounts.get(a.staff_id) ?? 0) + 1);
+  }
+  const mine = flagCounts.get(30) ?? 0;
+  assert.equal(mine, Math.max(...flagCounts.values()), '升旗次數為 0 的人應被排到最多升旗');
+
+  // 早修次數大家都是 0，不該因為升旗落後就被多排早修
+  const morningCounts = new Map();
+  for (const a of placed(plan)) {
+    if (byId.get(a.item_id).shift_type !== SHIFT.MORNING) continue;
+    morningCounts.set(a.staff_id, (morningCounts.get(a.staff_id) ?? 0) + 1);
+  }
+  const values = [...morningCounts.values()];
+  assert.ok(Math.max(...values) - Math.min(...values) <= 1, '早修應維持自己的平衡');
+});

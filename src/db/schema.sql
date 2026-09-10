@@ -23,9 +23,10 @@ CREATE INDEX IF NOT EXISTS idx_staff_role  ON staff (role);
 CREATE TABLE IF NOT EXISTS location_tasks (
     item_id            INTEGER PRIMARY KEY AUTOINCREMENT,
     board_type         TEXT    NOT NULL CHECK (board_type IN ('WHITEBOARD', 'BLACKBOARD')),
-    shift_type         TEXT    NOT NULL CHECK (shift_type IN ('MORNING', 'NOON', 'ALL_WEEK', 'DAILY')),
+    shift_type         TEXT    NOT NULL CHECK (shift_type IN ('MORNING', 'FLAG', 'NOON', 'ALL_WEEK', 'DAILY')),
     item_name          TEXT    NOT NULL,
     required_capacity  INTEGER NOT NULL DEFAULT 1 CHECK (required_capacity >= 1),
+    zone               TEXT    NOT NULL DEFAULT '',   -- 升旗時段內的分區：定點／巡查
     sort_order         INTEGER NOT NULL DEFAULT 0,
     UNIQUE (board_type, shift_type, item_name)
 );
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS fairness_stats (
     staff_id                 INTEGER NOT NULL UNIQUE REFERENCES staff (staff_id) ON DELETE CASCADE,
     blackboard_count         INTEGER NOT NULL DEFAULT 0,
     morning_whiteboard_count INTEGER NOT NULL DEFAULT 0,
+    flag_whiteboard_count    INTEGER NOT NULL DEFAULT 0,
     noon_whiteboard_count    INTEGER NOT NULL DEFAULT 0,
     standby_count            INTEGER NOT NULL DEFAULT 0   -- 擔任 Plan Y 預備隊的次數，用於輪替待命權
 );
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS fairness_ledger (
     staff_id      INTEGER NOT NULL REFERENCES staff (staff_id) ON DELETE CASCADE,
     blackboard_delta INTEGER NOT NULL DEFAULT 0,
     morning_delta    INTEGER NOT NULL DEFAULT 0,
+    flag_delta       INTEGER NOT NULL DEFAULT 0,
     noon_delta       INTEGER NOT NULL DEFAULT 0,
     standby_delta    INTEGER NOT NULL DEFAULT 0,
     applied_at    TEXT NOT NULL,

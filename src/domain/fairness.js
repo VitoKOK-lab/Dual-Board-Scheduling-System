@@ -11,11 +11,20 @@
 export const DIMENSION = {
   BLACKBOARD: 'blackboard',
   MORNING: 'morning',
+  FLAG: 'flag',
   NOON: 'noon',
 };
 
 /** 任務維度（會計入工作量）；standby 另計，不屬於工作量。 */
-export const WORK_DIMENSIONS = [DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.NOON];
+export const WORK_DIMENSIONS = [DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.FLAG, DIMENSION.NOON];
+
+/** fairness_stats 的欄位名對映。 */
+export const DIMENSION_COLUMN = {
+  [DIMENSION.BLACKBOARD]: 'blackboard_count',
+  [DIMENSION.MORNING]: 'morning_whiteboard_count',
+  [DIMENSION.FLAG]: 'flag_whiteboard_count',
+  [DIMENSION.NOON]: 'noon_whiteboard_count',
+};
 
 /**
  * 以週起始日推導輪轉種子：距 1970-01-01 的天數。
@@ -54,6 +63,7 @@ export class LoadTracker {
       this.load.set(s.staff_id, {
         blackboard: base.blackboard_count ?? 0,
         morning: base.morning_whiteboard_count ?? 0,
+        flag: base.flag_whiteboard_count ?? 0,
         noon: base.noon_whiteboard_count ?? 0,
         standby: base.standby_count ?? 0,
         weekAssigned: 0,
@@ -64,7 +74,7 @@ export class LoadTracker {
   #row(staffId) {
     let row = this.load.get(staffId);
     if (!row) {
-      row = { blackboard: 0, morning: 0, noon: 0, standby: 0, weekAssigned: 0 };
+      row = { blackboard: 0, morning: 0, flag: 0, noon: 0, standby: 0, weekAssigned: 0 };
       this.load.set(staffId, row);
     }
     return row;
@@ -77,7 +87,7 @@ export class LoadTracker {
   /** 累計工作量（不含待命次數）。 */
   total(staffId) {
     const r = this.#row(staffId);
-    return r.blackboard + r.morning + r.noon;
+    return r.blackboard + r.morning + r.flag + r.noon;
   }
 
   weekAssigned(staffId) {

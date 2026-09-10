@@ -8,8 +8,8 @@
  *   A. Plan Y 預備隊 —— 最先選，被選中者整週完全不排班，真正待命
  *   B. 黑板全週職務（交接、值日生）
  *   C. 黑板每日職務（餐車、早修升旗、午休回來）
- *   D. 白板早修矩陣
- *   E. 白板午休矩陣（硬性限制：同人當日早修點位 ≠ 午休點位）
+ *   D. 白板三個時段：早修 → 升旗 → 午休
+ *      升旗底下的「定點」與「巡查」是同一時段的兩種任務，共用名額上限。
  *
  * 師徒制：只有「師傅」進入排班池。徒弟跟著自己的師傅學習，
  * 不排班、不計入點位人數，由主管手動升級為師傅後才會被排到班。
@@ -19,9 +19,17 @@
  */
 
 import {
-  BOARD, ROLE, SHIFT, STANDBY_MAX, STANDBY_MIN, WARNING, WEEK_DAYS,
+  BOARD, ROLE, SHIFT, SHIFT_LABEL, STANDBY_MAX, STANDBY_MIN,
+  WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
 } from './constants.js';
 import { DIMENSION, LoadTracker, buildTieRanks, comparatorFor, standbyComparator } from './fairness.js';
+
+/** 白板時段 → 公平性維度。 */
+const SHIFT_DIMENSION = {
+  [SHIFT.MORNING]: DIMENSION.MORNING,
+  [SHIFT.FLAG]: DIMENSION.FLAG,
+  [SHIFT.NOON]: DIMENSION.NOON,
+};
 import { dayOfWeekFor } from './week.js';
 
 function sortItems(items) {
@@ -40,13 +48,30 @@ class WeekState {
     this.absent = new Set();             // `${staffId}:${day}`
     this.allWeekHolders = new Set();     // 已擔任全週職務者
     this.blackboardByDay = new Map();    // day -> Set<staffId>
-    this.morningByDay = new Map();       // day -> Map<staffId, item_name>
-    this.noonByDay = new Map();          // day -> Map<staffId, item_name>
+    this.shiftByDay = new Map();         // `${shift}:${day}` -> Set<staffId>，該時段已排到的人
+    this.spotsByDay = new Map();         // day -> Map<staffId, Set<item_name>>，當日已站過的點位
     for (const d of WEEK_DAYS) {
       this.blackboardByDay.set(d, new Set());
-      this.morningByDay.set(d, new Map());
-      this.noonByDay.set(d, new Map());
+      this.spotsByDay.set(d, new Map());
+      for (const shift of WHITEBOARD_SHIFTS) this.shiftByDay.set(`${shift}:${d}`, new Set());
     }
+  }
+
+  /** 該員當日在此時段是否已有點位。 */
+  isOnShift(staffId, shift, day) {
+    return this.shiftByDay.get(`${shift}:${day}`).has(staffId);
+  }
+
+  /** 該員當日是否已站過同名點位（跨時段不重複）。 */
+  hasSpot(staffId, day, itemName) {
+    return this.spotsByDay.get(day).get(staffId)?.has(itemName) ?? false;
+  }
+
+  place(staffId, shift, day, itemName) {
+    this.shiftByDay.get(`${shift}:${day}`).add(staffId);
+    const spots = this.spotsByDay.get(day);
+    if (!spots.has(staffId)) spots.set(staffId, new Set());
+    spots.get(staffId).add(itemName);
   }
 
   markAbsent(staffId, day) {
@@ -106,8 +131,6 @@ export function generateWeeklyPlan({
   const tracker = new LoadTracker(pool, statsMap);
   const tieRanks = buildTieRanks(pool, weekStartDate);
   const blackboardCmp = comparatorFor(DIMENSION.BLACKBOARD, tracker, tieRanks);
-  const morningCmp = comparatorFor(DIMENSION.MORNING, tracker, tieRanks);
-  const noonCmp = comparatorFor(DIMENSION.NOON, tracker, tieRanks);
 
   const assignments = [];
   const warnings = [];
@@ -122,7 +145,7 @@ export function generateWeeklyPlan({
   // 預備隊不能挖走排班需要的人：先算出單一時段的尖峰名額數，
   // 剩下的餘裕才是可以留作待命的人數。班表填不滿比沒有預備隊嚴重。
   const peakDemand = Math.max(
-    ...[SHIFT.MORNING, SHIFT.NOON].map((shift) => selectItems(items, BOARD.WHITEBOARD, shift)
+    ...WHITEBOARD_SHIFTS.map((shift) => selectItems(items, BOARD.WHITEBOARD, shift)
       .reduce((sum, i) => sum + i.required_capacity, 0)),
     0,
   );
@@ -219,57 +242,53 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // D / E. 白板矩陣 —— 早修、午休
+  // D. 白板 —— 早修 → 升旗 → 午休
   // ---------------------------------------------------------------
-  const dutyPoolWhiteboard = pool.filter((s) => !standbySet.has(s.staff_id));
+  const whiteboardPool = pool.filter((s) => !standbySet.has(s.staff_id));
 
-  const shifts = [
-    { shift: SHIFT.MORNING, dimension: DIMENSION.MORNING, comparator: morningCmp, placedBy: state.morningByDay, otherBy: state.noonByDay },
-    { shift: SHIFT.NOON, dimension: DIMENSION.NOON, comparator: noonCmp, placedBy: state.noonByDay, otherBy: state.morningByDay },
-  ];
-
-  for (const { shift, dimension, comparator, placedBy, otherBy } of shifts) {
+  for (const shift of WHITEBOARD_SHIFTS) {
     const shiftItems = selectItems(items, BOARD.WHITEBOARD, shift);
-    const demand = shiftItems.reduce((sum, i) => sum + i.required_capacity, 0);
+    if (shiftItems.length === 0) continue;
 
-    // 每人每個時段只能站一個點位，供給上限就是可排班師傅數
-    if (demand > dutyPoolWhiteboard.length) {
+    const demand = shiftItems.reduce((sum, i) => sum + i.required_capacity, 0);
+    const comparator = comparatorFor(SHIFT_DIMENSION[shift], tracker, tieRanks);
+
+    // 每人每個時段只能站一個點位，供給上限就是可排班人數
+    if (demand > whiteboardPool.length) {
       warn(WARNING.CAPACITY_EXCEEDED, {
         shift_type: shift,
+        shift_label: SHIFT_LABEL[shift] ?? shift,
         required: demand,
-        available: dutyPoolWhiteboard.length,
-        shortfall: demand - dutyPoolWhiteboard.length,
+        available: whiteboardPool.length,
+        shortfall: demand - whiteboardPool.length,
       });
     }
 
     for (const item of shiftItems) {
       for (const day of WEEK_DAYS) {
-        const placed = placedBy.get(day);
-        const other = otherBy.get(day);
-
         for (let slot = 0; slot < item.required_capacity; slot += 1) {
           const { staff: chosen } = pickCandidate(
-            dutyPoolWhiteboard,
+            whiteboardPool,
             [
-              // 硬性：當日可出勤、當日尚未站同時段的點位、
-              //       且當日的早修點位 ≠ 午休點位
+              // 硬性：當日可出勤、該時段尚未有點位、當日未站過同名點位
               (s) => !state.isAbsent(s.staff_id, day)
-                && !placed.has(s.staff_id)
-                && other.get(s.staff_id) !== item.item_name,
+                && !state.isOnShift(s.staff_id, shift, day)
+                && !state.hasSpot(s.staff_id, day, item.item_name),
             ],
             comparator,
           );
 
           if (!chosen) {
             warn(WARNING.UNDERSTAFFED, {
-              item_id: item.item_id, item_name: item.item_name, day_of_week: day,
+              item_id: item.item_id, item_name: item.item_name,
+              day_of_week: day, shift_type: shift,
             });
             assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
             continue;
           }
 
-          placed.set(chosen.staff_id, item.item_name);
-          tracker.add(chosen.staff_id, dimension);
+          state.place(chosen.staff_id, shift, day, item.item_name);
+          tracker.add(chosen.staff_id, SHIFT_DIMENSION[shift]);
           assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
         }
       }

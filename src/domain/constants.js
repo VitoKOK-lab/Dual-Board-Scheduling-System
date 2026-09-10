@@ -15,10 +15,30 @@ export const BOARD = {
 };
 
 export const SHIFT = {
-  MORNING: 'MORNING',
-  NOON: 'NOON',
-  ALL_WEEK: 'ALL_WEEK',
-  DAILY: 'DAILY',
+  MORNING: 'MORNING',   // 早修
+  FLAG: 'FLAG',         // 升旗（含定點與巡查兩種任務，同一時段）
+  NOON: 'NOON',         // 午休
+  ALL_WEEK: 'ALL_WEEK', // 黑板全週職務
+  DAILY: 'DAILY',       // 黑板每日職務
+};
+
+export const SHIFT_LABEL = {
+  [SHIFT.MORNING]: '早修',
+  [SHIFT.FLAG]: '升旗',
+  [SHIFT.NOON]: '午休',
+};
+
+/**
+ * 白板的三個時段，依實際作息先後排列。
+ * 升旗的「定點」與「巡查」是同一時段的兩種任務，
+ * 因此共用一個名額上限——一個人在升旗時段只會站一個位置。
+ */
+export const WHITEBOARD_SHIFTS = [SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON];
+
+/** 升旗時段內的任務分區，僅供看板分組顯示。 */
+export const ZONE = {
+  FIXED: '定點',
+  PATROL: '巡查',
 };
 
 /**

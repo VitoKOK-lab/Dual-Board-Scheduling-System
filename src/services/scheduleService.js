@@ -1,6 +1,8 @@
 /** 班表服務層：生成、覆寫、補位、發布結算。 */
 
-import { BOARD, ROLE, SHIFT, STANDBY_MAX, WARNING, WEEK_DAYS } from '../domain/constants.js';
+import {
+  BOARD, ROLE, SHIFT, SHIFT_LABEL, STANDBY_MAX, WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
+} from '../domain/constants.js';
 import { generateWeeklyPlan } from '../domain/scheduler.js';
 import { CONFLICT_LABEL, buildBoardIndex, checkConflicts, recommendReplacements } from '../domain/planX.js';
 import { dateForDay, dayOfWeekFor, mondayOf } from '../domain/week.js';
@@ -67,13 +69,17 @@ export function settleFairness(db, scheduleId) {
     `UPDATE fairness_stats
         SET blackboard_count         = MAX(0, blackboard_count + ?),
             morning_whiteboard_count = MAX(0, morning_whiteboard_count + ?),
+            flag_whiteboard_count    = MAX(0, flag_whiteboard_count + ?),
             noon_whiteboard_count    = MAX(0, noon_whiteboard_count + ?),
             standby_count            = MAX(0, standby_count + ?)
       WHERE staff_id = ?`,
   );
 
   for (const row of previous) {
-    adjust.run(-row.blackboard_delta, -row.morning_delta, -row.noon_delta, -row.standby_delta, row.staff_id);
+    adjust.run(
+      -row.blackboard_delta, -row.morning_delta, -row.flag_delta,
+      -row.noon_delta, -row.standby_delta, row.staff_id,
+    );
   }
   db.prepare('DELETE FROM fairness_ledger WHERE schedule_id = ?').run(scheduleId);
 
@@ -83,8 +89,16 @@ export function settleFairness(db, scheduleId) {
   const items = repo.itemsById(db);
   const deltas = new Map();
   const bump = (staffId) => {
-    if (!deltas.has(staffId)) deltas.set(staffId, { blackboard: 0, morning: 0, noon: 0, standby: 0 });
+    if (!deltas.has(staffId)) {
+      deltas.set(staffId, { blackboard: 0, morning: 0, flag: 0, noon: 0, standby: 0 });
+    }
     return deltas.get(staffId);
+  };
+
+  const SHIFT_FIELD = {
+    [SHIFT.MORNING]: 'morning',
+    [SHIFT.FLAG]: 'flag',
+    [SHIFT.NOON]: 'noon',
   };
 
   for (const row of repo.listScheduleItems(db, scheduleId)) {
@@ -101,22 +115,21 @@ export function settleFairness(db, scheduleId) {
 
     const d = bump(row.staff_id);
     if (item.board_type === BOARD.BLACKBOARD) d.blackboard += 1;
-    else if (item.shift_type === SHIFT.MORNING) d.morning += 1;
-    else if (item.shift_type === SHIFT.NOON) d.noon += 1;
+    else if (SHIFT_FIELD[item.shift_type]) d[SHIFT_FIELD[item.shift_type]] += 1;
   }
 
   const insertLedger = db.prepare(
     `INSERT INTO fairness_ledger
-       (schedule_id, staff_id, blackboard_delta, morning_delta, noon_delta, standby_delta, applied_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, blackboard_delta, morning_delta, flag_delta, noon_delta, standby_delta, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const ensureStat = db.prepare('INSERT OR IGNORE INTO fairness_stats (staff_id) VALUES (?)');
   const stamp = nowIso();
 
   for (const [staffId, d] of deltas) {
     ensureStat.run(staffId);
-    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.noon, d.standby, stamp);
-    adjust.run(d.blackboard, d.morning, d.noon, d.standby, staffId);
+    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.flag, d.noon, d.standby, stamp);
+    adjust.run(d.blackboard, d.morning, d.flag, d.noon, d.standby, staffId);
   }
 }
 
@@ -257,15 +270,18 @@ function buildCapacitySummary(db, items) {
     .filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift)
     .reduce((sum, i) => sum + i.required_capacity, 0);
 
-  const morning = demandOf(SHIFT.MORNING);
-  const noon = demandOf(SHIFT.NOON);
-  const peak = Math.max(morning, noon);
+  const shifts = WHITEBOARD_SHIFTS.map((shift) => ({
+    shift_type: shift,
+    label: SHIFT_LABEL[shift] ?? shift,
+    slots: demandOf(shift),
+    points: items.filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift).length,
+  }));
+  const peak = Math.max(0, ...shifts.map((s) => s.slots));
   const headroom = masters - peak;
 
   return {
     masters,
-    morning_slots: morning,
-    noon_slots: noon,
+    shifts,
     peak_slots: peak,
     // 尖峰時段之外還剩幾位師傅；這就是能留作 Plan Y 預備隊的上限
     headroom,

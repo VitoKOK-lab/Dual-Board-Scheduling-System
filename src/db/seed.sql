@@ -1,38 +1,60 @@
--- 種子資料：對應規格 §2.1 的實體版面
--- 黑板：全週固定職務 2 項、每日輪替職務 3 項
--- 白板：早修 10 點位、午休 10 點位
+-- 種子資料：點位取自實體白板照片（2026-09）
 --
--- 容量上限：每人每個時段只能站一個點，所以單一時段的名額總數
--- 不能超過可排班的師傅數。目前 22 位師傅扣掉 2 位預備隊 = 20，
--- 因此暫定 10 點位 × 2 人 = 20 個名額，零餘裕。
--- 實際點位名冊到位後請一併檢查這個上限。
+-- 白板分三個時段：早修 → 升旗 → 午休。
+-- 升旗底下再分「定點」與「巡查」兩種任務，屬同一時段共用名額上限：
+-- 一個人在升旗時段只會站一個位置。
+--
+-- 每點人數由師傅人數反推：可排班師傅 22 位扣掉最多 3 位預備隊
+-- 剩 19 位，平均攤到各點位（單點上限 3 人），餘數分給排在前面的點位。
+-- 板上原本的人數（升旗 34、午休 28）遠超過 22 位師傅，無法照搬。
+--
+-- 待補正：
+--   1. 標記「待確認」的點位，照片上反光或被裁切、辨識不出來。
+--   2. 早修只讀到 6 個點位，照片下緣被切掉，清單可能不完整。
 
-INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, sort_order) VALUES
-  ('BLACKBOARD', 'ALL_WEEK', '交接', 1, 10),
-  ('BLACKBOARD', 'ALL_WEEK', '值日生', 1, 20),
-  ('BLACKBOARD', 'DAILY', '餐車', 1, 30),
-  ('BLACKBOARD', 'DAILY', '早修升旗', 1, 40),
-  ('BLACKBOARD', 'DAILY', '午休回來', 1, 50),
-  ('WHITEBOARD', 'MORNING', '育英樓', 2, 10),
-  ('WHITEBOARD', 'MORNING', '教大', 2, 20),
-  ('WHITEBOARD', 'MORNING', '7-11', 2, 30),
-  ('WHITEBOARD', 'MORNING', '正門', 2, 40),
-  ('WHITEBOARD', 'MORNING', '後門', 2, 50),
-  ('WHITEBOARD', 'MORNING', '活動中心', 2, 60),
-  ('WHITEBOARD', 'MORNING', '圖書館', 2, 70),
-  ('WHITEBOARD', 'MORNING', '體育館', 2, 80),
-  ('WHITEBOARD', 'MORNING', '川堂', 2, 90),
-  ('WHITEBOARD', 'MORNING', '側門', 2, 100),
-  ('WHITEBOARD', 'NOON', '育英樓', 2, 10),
-  ('WHITEBOARD', 'NOON', '教大', 2, 20),
-  ('WHITEBOARD', 'NOON', '7-11', 2, 30),
-  ('WHITEBOARD', 'NOON', '正門', 2, 40),
-  ('WHITEBOARD', 'NOON', '後門', 2, 50),
-  ('WHITEBOARD', 'NOON', '活動中心', 2, 60),
-  ('WHITEBOARD', 'NOON', '圖書館', 2, 70),
-  ('WHITEBOARD', 'NOON', '體育館', 2, 80),
-  ('WHITEBOARD', 'NOON', '川堂', 2, 90),
-  ('WHITEBOARD', 'NOON', '側門', 2, 100);
+INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, zone, sort_order) VALUES
+  ('BLACKBOARD', 'ALL_WEEK', '交接', 1, '', 10),
+  ('BLACKBOARD', 'ALL_WEEK', '值日生', 1, '', 20),
+  ('BLACKBOARD', 'DAILY', '餐車', 1, '', 30),
+  ('BLACKBOARD', 'DAILY', '早修升旗', 1, '', 40),
+  ('BLACKBOARD', 'DAILY', '午休回來', 1, '', 50),
+  ('WHITEBOARD', 'MORNING', '廣興樓 1-4F', 3, '', 10),
+  ('WHITEBOARD', 'MORNING', '教大 3-4F', 3, '', 20),
+  ('WHITEBOARD', 'MORNING', '教大 5-6F', 3, '', 30),
+  ('WHITEBOARD', 'MORNING', '教大 7-8F', 3, '', 40),
+  ('WHITEBOARD', 'MORNING', '7-11', 3, '', 50),
+  ('WHITEBOARD', 'MORNING', '更生樓 2-4F', 3, '', 60),
+  ('WHITEBOARD', 'FLAG', '育英樓 1F', 1, '定點', 10),
+  ('WHITEBOARD', 'FLAG', '7-11', 1, '定點', 20),
+  ('WHITEBOARD', 'FLAG', '熱水台', 1, '定點', 30),
+  ('WHITEBOARD', 'FLAG', '紀念館 1F', 1, '定點', 40),
+  ('WHITEBOARD', 'FLAG', '更生樓 1F', 1, '定點', 50),
+  ('WHITEBOARD', 'FLAG', '教務處走廊', 1, '定點', 60),
+  ('WHITEBOARD', 'FLAG', '教大電梯', 1, '定點', 70),
+  ('WHITEBOARD', 'FLAG', '廣興樓 2F', 1, '定點', 80),
+  ('WHITEBOARD', 'FLAG', '保健室 1F', 1, '定點', 90),
+  ('WHITEBOARD', 'FLAG', '待確認 3F', 1, '定點', 100),
+  ('WHITEBOARD', 'FLAG', '育英樓 2F(中)', 1, '定點', 110),
+  ('WHITEBOARD', 'FLAG', '辦公室', 1, '巡查', 120),
+  ('WHITEBOARD', 'FLAG', '教大 345F', 1, '巡查', 130),
+  ('WHITEBOARD', 'FLAG', '教大 678F', 1, '巡查', 140),
+  ('WHITEBOARD', 'FLAG', '育英樓 1-3F+電腦教室', 1, '巡查', 150),
+  ('WHITEBOARD', 'FLAG', '廣興樓 1-5F', 1, '巡查', 160),
+  ('WHITEBOARD', 'FLAG', '更生樓+莊敬樓 1-5F', 1, '巡查', 170),
+  ('WHITEBOARD', 'FLAG', '自強樓+紀念館 1-6F', 1, '巡查', 180),
+  ('WHITEBOARD', 'FLAG', '地下室(全)', 1, '巡查', 190),
+  ('WHITEBOARD', 'NOON', '教大電梯+1-2F', 2, '', 10),
+  ('WHITEBOARD', 'NOON', '教大 3-4F', 2, '', 20),
+  ('WHITEBOARD', 'NOON', '教大 5-6F+空中花園', 2, '', 30),
+  ('WHITEBOARD', 'NOON', '教大 7-8F', 2, '', 40),
+  ('WHITEBOARD', 'NOON', '紀念館 1-6F', 2, '', 50),
+  ('WHITEBOARD', 'NOON', '待確認樓', 2, '', 60),
+  ('WHITEBOARD', 'NOON', 'PU跑道(全)', 2, '', 70),
+  ('WHITEBOARD', 'NOON', '莊敬樓 1-4F', 1, '', 80),
+  ('WHITEBOARD', 'NOON', '更生樓 1-5F', 1, '', 90),
+  ('WHITEBOARD', 'NOON', '育英樓 1-4F', 1, '', 100),
+  ('WHITEBOARD', 'NOON', '廣興樓 1-5F', 1, '', 110),
+  ('WHITEBOARD', 'NOON', '7-11', 1, '', 120);
 
 -- 實際名冊：高一組 47 人（徒弟）、高二組 22 人（師傅），合計 69 人
 -- 徒弟不排班；主管手動升級為師傅後才會進入排班池。

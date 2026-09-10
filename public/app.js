@@ -6,6 +6,16 @@
 const RING_R = 32;
 const RING_C = 2 * Math.PI * RING_R;
 const DAY_NAMES = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五' };
+const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];
+const SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休' };
+const SHIFT_COLOR = { MORNING: 'var(--emerald)', FLAG: 'var(--topaz)', NOON: 'var(--amethyst)' };
+/** 公平性維度 → 欄位、標籤、顏色、長條樣式 */
+const DIMENSIONS = [
+  { key: 'blackboard_count', label: '黑板', color: 'var(--sapphire)', bar: 'bar--bb' },
+  { key: 'morning_whiteboard_count', label: '早修', color: 'var(--emerald)', bar: 'bar--am' },
+  { key: 'flag_whiteboard_count', label: '升旗', color: 'var(--topaz)', bar: 'bar--fl' },
+  { key: 'noon_whiteboard_count', label: '午休', color: 'var(--amethyst)', bar: 'bar--pm' },
+];
 const DRAG_THRESHOLD = 8;
 const LONG_PRESS_MS = 180;
 
@@ -214,8 +224,8 @@ function renderWhiteboard() {
 
   const seg = el('div', 'segmented');
   seg.setAttribute('role', 'tablist');
-  for (const [shift, label] of [['MORNING', '早修'], ['NOON', '午休']]) {
-    const b = el('button', null, label);
+  for (const shift of WHITEBOARD_SHIFTS) {
+    const b = el('button', null, SHIFT_LABEL[shift]);
     b.type = 'button';
     b.dataset.shift = shift;
     b.setAttribute('role', 'tab');
@@ -225,48 +235,64 @@ function renderWhiteboard() {
   }
   view.append(seg);
 
-  const accent = state.shift === 'MORNING' ? 'var(--emerald)' : 'var(--amethyst)';
+  const accent = SHIFT_COLOR[state.shift];
   const items = itemsOf('WHITEBOARD', state.shift);
-
   const daySlots = items.flatMap((i) => slotsOf(i.item_id, state.day));
   const filled = daySlots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
   const head = el('div', 'section-head');
-  head.append(el('h2', null, `${state.shift === 'MORNING' ? '早修' : '午休'}矩陣 · 週${DAY_NAMES[state.day]}`));
+  head.append(el('h2', null, `${SHIFT_LABEL[state.shift]} · 週${DAY_NAMES[state.day]}`));
   const meta = el('span', 'section-head__meta');
   meta.append(el('span', 'mono', `${filled}/${total}`), document.createTextNode(' 名額'));
   head.append(meta);
   view.append(head);
 
+  // 升旗底下分「定點」與「巡查」；其他時段沒有分區。
+  // 點位以列呈現而非一點一卡——19 個點位攤成 19 張卡要滑很久，
+  // 而且實體白板本來就是一行一個點位。
+  const groups = new Map();
   for (const item of items) {
-    const slots = slotsOf(item.item_id, state.day);
-    const card = el('div', 'card');
-    const spot = el('div', 'spot');
+    const zone = item.zone || '';
+    if (!groups.has(zone)) groups.set(zone, []);
+    groups.get(zone).push(item);
+  }
 
-    const spotHead = el('div', 'spot__head');
-    spotHead.append(el('span', 'spot__name', item.item_name));
+  for (const [zone, zoneItems] of groups) {
+    if (zone) {
+      const zoneHead = el('div', 'zone-head');
+      zoneHead.append(el('h3', null, zone));
+      view.append(zoneHead);
+    }
+    const card = el('div', 'card card--flush');
+    for (const item of zoneItems) card.append(spotRow(item, accent));
+    view.append(card);
+  }
+}
 
-    const meter = el('div', 'spot__meter');
+function spotRow(item, accent) {
+  const slots = slotsOf(item.item_id, state.day);
+  const on = slots.filter((s) => s.staff_id != null).length;
+
+  const row = el('div', 'spot-row');
+  row.append(el('span', 'spot-row__name', item.item_name));
+
+  const tags = el('div', 'spot__tags');
+  for (const slot of slots) tags.append(tagEl(slot, state.shift, state.day));
+  row.append(tags);
+
+  // 只有一個名額時，名牌本身就說明了滿或缺，不需要再畫刻度
+  if (item.required_capacity > 1) {
     const dots = el('div', 'dots');
-    const on = slots.filter((s) => s.staff_id != null).length;
     for (let i = 0; i < item.required_capacity; i += 1) {
       const d = el('i', `dot${i < on ? ' dot--on' : ''}`);
       if (i < on) d.style.setProperty('--accent', accent);
       dots.append(d);
     }
-    meter.append(dots, el('span', 'spot__count mono', `${on}/${item.required_capacity}`));
-    spotHead.append(meter);
-    spot.append(spotHead);
-
-
-    const tags = el('div', 'spot__tags');
-    for (const s of slots) tags.append(tagEl(s, state.shift, state.day));
-    spot.append(tags);
-
-    card.append(spot);
-    view.append(card);
+    row.append(dots);
   }
+
+  return row;
 }
 
 /* ---------- 視圖：備援 ---------- */
@@ -314,8 +340,10 @@ function renderStandby() {
     for (const g of gaps.slice(0, 30)) {
       const row = el('div', 'rowitem');
       const main = el('div', 'rowitem__main');
+      const item = state.itemsById.get(g.item_id);
+      const shiftName = item && item.board_type === 'WHITEBOARD' ? SHIFT_LABEL[item.shift_type] : '黑板';
       main.append(el('div', 'rowitem__title', g.item_name ?? '未知點位'));
-      main.append(el('div', 'rowitem__sub', g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'));
+      main.append(el('div', 'rowitem__sub', `${shiftName} · ${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'}`));
       const btn = el('button', 'btn btn--sm btn--quiet', '補位');
       btn.type = 'button';
       btn.addEventListener('click', () => openPlanX(g.detail_id));
@@ -442,9 +470,12 @@ function renderStats() {
       row.append(main, el('span', 'person__total mono', String(value)));
       return row;
     };
+
     list.append(line('可排班師傅', cap.masters, `徒弟 ${apprentices.length} 位不列入`));
-    list.append(line('尖峰時段名額', cap.peak_slots, `早修 ${cap.morning_slots}・午休 ${cap.noon_slots}`));
-    list.append(line('可留待命人數', cap.standby_capacity, '師傅數減去尖峰名額'));
+    for (const sh of cap.shifts ?? []) {
+      list.append(line(`${sh.label}名額`, sh.slots, `${sh.points} 個點位`));
+    }
+    list.append(line('可留待命人數', cap.standby_capacity, `師傅數減去尖峰名額 ${cap.peak_slots}`));
     supply.append(list);
 
     if (!cap.feasible) {
@@ -453,28 +484,27 @@ function renderStats() {
     view.append(supply);
   }
 
-  // 均衡度只看師傅，因為只有師傅會被排班
   if (activeMasters.length > 0) {
     const card = el('div', 'card');
     const head = el('div', 'card__title');
     head.append(el('h3', null, '師傅輪替均衡度'), badge(`${activeMasters.length} 位`, 'emerald'));
     card.append(head);
 
-    const rings = el('div', 'rings');
-    rings.append(ringEl('黑板', balance(activeMasters, 'blackboard_count'), 'var(--sapphire)'));
-    rings.append(ringEl('早修', balance(activeMasters, 'morning_whiteboard_count'), 'var(--emerald)'));
-    rings.append(ringEl('午休', balance(activeMasters, 'noon_whiteboard_count'), 'var(--amethyst)'));
+    const rings = el('div', 'rings rings--wide');
+    for (const d of DIMENSIONS) {
+      rings.append(ringEl(d.label, balance(activeMasters, d.key), d.color));
+    }
     card.append(rings);
     card.append(el('p', 'field__hint', '人人次數相差不超過 1 次即為 100%，Plan Y 待命週已折算回來；環下數字為實際的最少與最多次數。'));
     view.append(card);
   }
 
   const legend = el('div', 'legend');
-  for (const [color, label] of [['var(--sapphire)', '黑板'], ['var(--emerald)', '早修'], ['var(--amethyst)', '午休']]) {
+  for (const d of DIMENSIONS) {
     const item = el('span');
     const swatch = el('i');
-    swatch.style.background = color;
-    item.append(swatch, document.createTextNode(label));
+    swatch.style.background = d.color;
+    item.append(swatch, document.createTextNode(d.label));
     legend.append(item);
   }
   view.append(legend);
@@ -501,24 +531,24 @@ function rosterSection(title, rows, withLoad) {
 
   const sorted = withLoad
     ? [...rows].sort((a, b) => {
-      const ta = a.blackboard_count + a.morning_whiteboard_count + a.noon_whiteboard_count;
-      const tb = b.blackboard_count + b.morning_whiteboard_count + b.noon_whiteboard_count;
+      const ta = DIMENSIONS.reduce((sum, d) => sum + a[d.key], 0);
+      const tb = DIMENSIONS.reduce((sum, d) => sum + b[d.key], 0);
       return tb - ta || a.staff_id - b.staff_id;
     })
     : rows;
 
   const card = el('div', 'card card--flush');
-  const peak = Math.max(1, ...sorted.map((r) => Math.max(r.blackboard_count, r.morning_whiteboard_count, r.noon_whiteboard_count)));
+  const peak = Math.max(1, ...sorted.flatMap((r) => DIMENSIONS.map((d) => r[d.key])));
 
   for (const r of sorted) {
-    const total = r.blackboard_count + r.morning_whiteboard_count + r.noon_whiteboard_count;
+    const total = DIMENSIONS.reduce((sum, d) => sum + r[d.key], 0);
     const btn = el('button', `person${r.is_active ? '' : ' person--off'}`);
     btn.type = 'button';
 
     const nameWrap = el('div', 'person__name');
     nameWrap.append(document.createTextNode(r.name));
     if (withLoad) {
-      const sub = `${r.staff_group}・黑板 ${r.blackboard_count}・早修 ${r.morning_whiteboard_count}・午休 ${r.noon_whiteboard_count}`;
+      const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label} ${r[d.key]}`).join('・')}`;
       nameWrap.append(el('span', null, r.standby_count ? `${sub}・待命 ${r.standby_count}` : sub));
     } else {
       nameWrap.append(el('span', null, `${r.staff_group}・點選可升級為師傅`));
@@ -527,8 +557,9 @@ function rosterSection(title, rows, withLoad) {
 
     if (withLoad) {
       const bars = el('div', 'person__bars');
-      for (const [cls, val] of [['bar--bb', r.blackboard_count], ['bar--am', r.morning_whiteboard_count], ['bar--pm', r.noon_whiteboard_count]]) {
-        const bar = el('i', `bar ${val === 0 ? 'bar--zero' : cls}`);
+      for (const d of DIMENSIONS) {
+        const val = r[d.key];
+        const bar = el('i', `bar ${val === 0 ? 'bar--zero' : d.bar}`);
         bar.style.height = `${Math.max(3, Math.round((val / peak) * 28))}px`;
         bars.append(bar);
       }
@@ -612,7 +643,7 @@ async function openPlanX(detailId) {
   const info = await api(`/api/assignments/${detailId}/plan-x`);
   const shiftLabel = info.item.board_type === 'BLACKBOARD'
     ? '黑板'
-    : (info.item.shift_type === 'MORNING' ? '早修' : '午休');
+    : (SHIFT_LABEL[info.item.shift_type] ?? info.item.shift_type);
   const dayLabel = info.day_of_week ? `週${DAY_NAMES[info.day_of_week]}` : '全週';
   const current = info.current_staff_id ? staffName(info.current_staff_id) : '空缺';
 
@@ -763,7 +794,7 @@ function openAbsenceSheet() {
 
 function openStaffSheet(person) {
   const isMaster = person.role === 'MASTER';
-  const total = person.blackboard_count + person.morning_whiteboard_count + person.noon_whiteboard_count;
+  const total = DIMENSIONS.reduce((sum, d) => sum + person[d.key], 0);
   const subtitle = isMaster
     ? `${person.staff_group} · 師傅 · 累計 ${total} 次任務 · 待命 ${person.standby_count ?? 0} 次`
     : `${person.staff_group} · 徒弟 · 不排班`;
@@ -778,10 +809,8 @@ function openStaffSheet(person) {
         return { pct: mean > 0 ? Math.min(150, Math.round((value / mean) * 100)) : 100, min: value, max: Math.round(mean) };
       };
 
-      const rings = el('div', 'rings');
-      rings.append(ringEl('黑板', share(person.blackboard_count, 'blackboard_count'), 'var(--sapphire)'));
-      rings.append(ringEl('早修', share(person.morning_whiteboard_count, 'morning_whiteboard_count'), 'var(--emerald)'));
-      rings.append(ringEl('午休', share(person.noon_whiteboard_count, 'noon_whiteboard_count'), 'var(--amethyst)'));
+      const rings = el('div', 'rings rings--wide');
+      for (const d of DIMENSIONS) rings.append(ringEl(d.label, share(person[d.key], d.key), d.color));
       body.append(rings);
       body.append(el('p', 'field__hint', '環代表相對於師傅平均的比例，環下為「本人次數／師傅平均」。'));
     } else {

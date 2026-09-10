@@ -70,13 +70,14 @@ test('一鍵排班會填滿所有名額並產生 Plan Y 預備隊', async () => 
 test('草稿狀態不影響公平性統計，發布後才結算', async () => {
   await withServer(async ({ call }) => {
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
-    const totalBefore = gen.body.fairness.reduce((s, f) => s + f.blackboard_count + f.morning_whiteboard_count + f.noon_whiteboard_count, 0);
+    const sumAll = (rows) => rows.reduce((sum, f) => sum + f.blackboard_count
+      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count, 0);
+    const totalBefore = sumAll(gen.body.fairness);
     assert.equal(totalBefore, 0);
 
     const pub = await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
     assert.equal(pub.body.schedule.status, 'PUBLISHED');
-    const totalAfter = pub.body.fairness.reduce((s, f) => s + f.blackboard_count + f.morning_whiteboard_count + f.noon_whiteboard_count, 0);
-    assert.equal(totalAfter, gen.body.assignments.length);
+    assert.equal(sumAll(pub.body.fairness), gen.body.assignments.length);
   });
 });
 
@@ -100,7 +101,8 @@ test('撤回發布會沖銷該次結算', async () => {
     await call(`/api/schedules/${id}/publish`, { method: 'POST' });
     const back = await call(`/api/schedules/${id}/unpublish`, { method: 'POST' });
     assert.equal(back.body.schedule.status, 'DRAFT');
-    const total = back.body.fairness.reduce((s, f) => s + f.blackboard_count + f.morning_whiteboard_count + f.noon_whiteboard_count, 0);
+    const total = back.body.fairness.reduce((sum, f) => sum + f.blackboard_count
+      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count, 0);
     assert.equal(total, 0);
   });
 });
@@ -176,7 +178,8 @@ test('公差不影響公平性統計的計算方式', async () => {
     await call('/api/absences', { method: 'POST', body: { staff_id: 48, absence_date: '2026-09-09' } });
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     const pub = await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
-    const total = pub.body.fairness.reduce((s, f) => s + f.blackboard_count + f.morning_whiteboard_count + f.noon_whiteboard_count, 0);
+    const total = pub.body.fairness.reduce((sum, f) => sum + f.blackboard_count
+      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count, 0);
     assert.equal(total, gen.body.assignments.filter((a) => a.staff_id != null).length);
   });
 });
@@ -265,7 +268,8 @@ test('供需摘要反映「單一時段名額數不得超過師傅數」', async
     const cap = body.capacity;
 
     assert.equal(cap.masters, 22);
-    assert.equal(cap.peak_slots, Math.max(cap.morning_slots, cap.noon_slots));
+    assert.deepEqual(cap.shifts.map((s) => s.shift_type), ['MORNING', 'FLAG', 'NOON']);
+    assert.equal(cap.peak_slots, Math.max(...cap.shifts.map((s) => s.slots)));
     assert.equal(cap.headroom, cap.masters - cap.peak_slots);
     assert.equal(cap.feasible, cap.peak_slots <= cap.masters);
     assert.equal(cap.standby_capacity, Math.max(0, Math.min(3, cap.headroom)));
@@ -363,7 +367,8 @@ test('預備隊次數計入 standby_count，不計入工作量', async () => {
     for (const s of gen.body.standby) {
       const row = pub.body.fairness.find((f) => f.staff_id === s.staff_id);
       assert.equal(row.standby_count, 1);
-      assert.equal(row.blackboard_count + row.morning_whiteboard_count + row.noon_whiteboard_count, 0);
+      assert.equal(row.blackboard_count + row.morning_whiteboard_count
+        + row.flag_whiteboard_count + row.noon_whiteboard_count, 0);
     }
   });
 });

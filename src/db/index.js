@@ -45,7 +45,10 @@ function migrate(db) {
     ['staff', 'staff_group', "TEXT NOT NULL DEFAULT ''"],
     ['staff', 'sort_order', 'INTEGER NOT NULL DEFAULT 0'],
     ['staff', 'role', "TEXT NOT NULL DEFAULT 'APPRENTICE'"],
+    ['location_tasks', 'zone', "TEXT NOT NULL DEFAULT ''"],
+    ['fairness_stats', 'flag_whiteboard_count', 'INTEGER NOT NULL DEFAULT 0'],
     ['fairness_stats', 'standby_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['fairness_ledger', 'flag_delta', 'INTEGER NOT NULL DEFAULT 0'],
     ['fairness_ledger', 'standby_delta', 'INTEGER NOT NULL DEFAULT 0'],
   ];
   for (const [table, column, definition] of additions) {
