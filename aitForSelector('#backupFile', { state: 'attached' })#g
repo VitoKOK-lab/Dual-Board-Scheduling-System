@@ -1,0 +1,6 @@
+await page.backupFile')#newItemName');
+await page.backupFile')#newStaffName');
+await page.backupFile')#sheetBody .segmented');
+await page.backupFile')#backupFile');
+await page.backupFile')#sheetBody .segmented');
+await page.backupFile')#backupFile');

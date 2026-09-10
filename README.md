@@ -15,18 +15,22 @@
 
 **伺服器版**（本機或內網，資料存在 SQLite）：見下方快速開始。
 
-**單頁版**（`web/dual-board.html`，可直接放上靜態主機或 Artifact）：
+**單頁版**（`docs/index.html`，可直接放上靜態主機）：
 
 ```bash
-node scripts/build-web.mjs   # 產生 web/dual-board.html
+node scripts/build-web.mjs   # 產生 docs/index.html
 ```
+
+`docs/` 是 GitHub Pages 的標準來源目錄。在 repo 的
+Settings → Pages 選 **Deploy from a branch → 分支 → /docs** 就會有公開網址，
+不用登入、不用伺服器。資料存在瀏覽器本機，**務必用設定裡的匯出備份**。
 
 領域邏輯（`src/domain`：排班引擎、公平性、Plan X）本來就是純函式、不碰資料庫，
 兩種跑法共用同一份。只有資料層不同：
 
 | | 伺服器版 | 單頁版 |
 |---|---|---|
-| 儲存 | SQLite（`src/db`） | Artifact 雲端儲存，退回瀏覽器本機 |
+| 儲存 | SQLite（`src/db`） | 瀏覽器本機；放在 Artifact 上時改用雲端儲存 |
 | 資料存取 | `src/services/repository.js` | `web/store.js` |
 | 服務層 | `src/services/scheduleService.js` | `web/services.js` |
 | API | `src/server`（REST） | `web/dispatch.js`（同樣的路徑與回傳格式） |
@@ -197,6 +201,10 @@ test/              node:test 測試（week / scheduler / planX / api）
   每列可就地改名、用加減鈕調人數、刪除。上方表單新增點位——
   升旗會多出「定點／巡查」分區選擇。
 * **成員**：依身分分組（師傅／徒弟）。每列可改名、升降身分、刪除。
+* **備份**：匯出成一個 JSON 檔，或從備份還原。還原是整份取代，不做合併——
+  合併規則沒有正確答案，覆蓋才可預期。兩種跑法的備份檔格式相同，可互相搬移。
+
+單頁版的資料存在瀏覽器裡，清掉瀏覽器資料或換手機就會消失，**每次發布班表後匯出一份**。
 
 改完關掉面板，按底部中央的閃電鈕重新排班即可。刪除採就地確認，
 不另開對話框——巢狀 bottom sheet 在手機上容易誤觸。
@@ -227,6 +235,8 @@ test/              node:test 測試（week / scheduler / planX / api）
 | GET/POST | `/api/staff` | 人員清單／新增 |
 | PATCH | `/api/staff/:id` | 改名、升級／降級（`role`）、啟用／停用（`is_active`） |
 | DELETE | `/api/staff/:id` | 刪除人員（班表名額變成空缺） |
+| GET | `/api/backup` | 匯出整份資料 |
+| POST | `/api/backup` | 從備份還原（整份取代） |
 
 ---
 

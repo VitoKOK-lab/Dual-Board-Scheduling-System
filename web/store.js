@@ -155,3 +155,48 @@ function locateRow(detailId) {
   }
   return null;
 }
+
+/* ---------- 備份 ---------- */
+
+const BACKUP_FORMAT = 'dual-board-backup';
+const BACKUP_VERSION = 1;
+
+function exportAll() {
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exported_at: new Date().toISOString(),
+    staff: clone(STATE.staff),
+    items: clone(STATE.items),
+    fairness: clone(STATE.fairness),
+    weeks: clone(STATE.weeks),
+  };
+}
+
+/** 匯入會整份取代現有資料，不做合併——合併規則沒有正確答案，覆蓋才可預期。 */
+async function importAll(data) {
+  if (data?.format !== BACKUP_FORMAT) throw new Error('這不是雙板排班的備份檔');
+  if (!Array.isArray(data.staff) || !Array.isArray(data.items)) throw new Error('備份檔內容不完整');
+
+  STATE.staff = data.staff;
+  STATE.items = data.items;
+  STATE.fairness = data.fairness ?? {};
+  STATE.weeks = data.weeks ?? {};
+
+  // 沿用備份裡的最大編號往下發，避免與既有資料撞號
+  const maxOf = (list, key) => Math.max(0, ...list.map((x) => x[key] ?? 0));
+  const allRows = Object.values(STATE.weeks).flatMap((w) => w.rows ?? []);
+  const allAbsences = Object.values(STATE.weeks).flatMap((w) => w.absences ?? []);
+  STATE.nextIds = {
+    staff: maxOf(STATE.staff, 'staff_id') + 1,
+    item: maxOf(STATE.items, 'item_id') + 1,
+    detail: maxOf(allRows, 'detail_id') + 1,
+    absence: maxOf(allAbsences, 'absence_id') + 1,
+  };
+
+  loadedWeeks = new Set(Object.keys(STATE.weeks));
+  await saveConfig();
+  await Promise.all(Object.keys(STATE.weeks).map((week) => saveWeek(week)));
+
+  return { staff: STATE.staff.length, items: STATE.items.length, weeks: Object.keys(STATE.weeks).length };
+}

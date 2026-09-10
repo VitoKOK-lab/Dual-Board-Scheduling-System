@@ -216,3 +216,156 @@ export function createAbsence(db, { staffId, absenceDate, absenceType = 'OFFICIA
 export function deleteAbsence(db, absenceId) {
   db.prepare('DELETE FROM staff_absences WHERE absence_id = ?').run(absenceId);
 }
+
+/* ---------- 備份 ---------- */
+
+export const BACKUP_FORMAT = 'dual-board-backup';
+export const BACKUP_VERSION = 1;
+
+/** 匯出整個資料庫，格式與單頁版相同，兩邊的備份檔可互通。 */
+export function exportAll(db) {
+  const weeks = {};
+  for (const schedule of db.prepare('SELECT * FROM weekly_schedules').all()) {
+    const ledger = {};
+    for (const row of db.prepare('SELECT * FROM fairness_ledger WHERE schedule_id = ?').all(schedule.schedule_id)) {
+      const delta = {};
+      for (const [column, field] of Object.entries({
+        blackboard_delta: 'blackboard_count',
+        morning_delta: 'morning_whiteboard_count',
+        flag_delta: 'flag_whiteboard_count',
+        noon_delta: 'noon_whiteboard_count',
+        standby_delta: 'standby_count',
+      })) {
+        if (row[column]) delta[field] = row[column];
+      }
+      if (Object.keys(delta).length > 0) ledger[row.staff_id] = delta;
+    }
+
+    const week = schedule.week_start_date;
+    weeks[week] = {
+      week_start_date: week,
+      status: schedule.status,
+      generated_at: schedule.generated_at,
+      published_at: schedule.published_at,
+      rows: listScheduleItems(db, schedule.schedule_id).map((r) => ({
+        detail_id: r.detail_id,
+        staff_id: r.staff_id,
+        item_id: r.item_id,
+        day_of_week: r.day_of_week,
+        is_plan_b_standby: r.is_plan_b_standby,
+        is_override: r.is_override,
+        slot_index: r.slot_index,
+      })),
+      // 一週只到週五，所以是起始日 + 4 天
+      absences: db.prepare(
+        `SELECT absence_id, staff_id, absence_date, absence_type, note FROM staff_absences
+          WHERE absence_date BETWEEN ? AND date(?, '+4 days') ORDER BY absence_date`,
+      ).all(week, week),
+      ledger,
+    };
+  }
+
+  const fairness = {};
+  for (const row of listFairness(db)) {
+    fairness[row.staff_id] = {
+      blackboard_count: row.blackboard_count,
+      morning_whiteboard_count: row.morning_whiteboard_count,
+      flag_whiteboard_count: row.flag_whiteboard_count,
+      noon_whiteboard_count: row.noon_whiteboard_count,
+      standby_count: row.standby_count,
+    };
+  }
+
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exported_at: new Date().toISOString(),
+    staff: listStaff(db).map((s) => ({ ...s, is_active: s.is_active ? 1 : 0 })),
+    items: listItems(db),
+    fairness,
+    weeks,
+  };
+}
+
+/** 匯入會整份取代現有資料，不做合併——合併規則沒有正確答案，覆蓋才可預期。 */
+export function importAll(db, data) {
+  if (data?.format !== BACKUP_FORMAT) throw Object.assign(new Error('這不是雙板排班的備份檔'), { status: 400 });
+  if (!Array.isArray(data.staff) || !Array.isArray(data.items)) {
+    throw Object.assign(new Error('備份檔內容不完整'), { status: 400 });
+  }
+
+  for (const table of ['fairness_ledger', 'schedule_items', 'staff_absences', 'weekly_schedules',
+    'fairness_stats', 'location_tasks', 'staff']) {
+    db.prepare(`DELETE FROM ${table}`).run();
+  }
+
+  const insertStaff = db.prepare(
+    'INSERT INTO staff (staff_id, name, staff_group, role, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+  );
+  for (const [i, s] of data.staff.entries()) {
+    insertStaff.run(s.staff_id, s.name, s.staff_group ?? '', s.role ?? 'APPRENTICE',
+      s.is_active === false || s.is_active === 0 ? 0 : 1, s.sort_order ?? i + 1);
+  }
+
+  const insertItem = db.prepare(
+    `INSERT INTO location_tasks (item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const [i, it] of data.items.entries()) {
+    insertItem.run(it.item_id, it.board_type, it.shift_type, it.item_name,
+      it.required_capacity ?? 1, it.zone ?? '', it.sort_order ?? (i + 1) * 10);
+  }
+
+  const insertStat = db.prepare(
+    `INSERT INTO fairness_stats (staff_id, blackboard_count, morning_whiteboard_count,
+       flag_whiteboard_count, noon_whiteboard_count, standby_count) VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  for (const s of data.staff) {
+    const f = data.fairness?.[s.staff_id] ?? {};
+    insertStat.run(s.staff_id, f.blackboard_count ?? 0, f.morning_whiteboard_count ?? 0,
+      f.flag_whiteboard_count ?? 0, f.noon_whiteboard_count ?? 0, f.standby_count ?? 0);
+  }
+
+  const insertSchedule = db.prepare(
+    'INSERT INTO weekly_schedules (week_start_date, status, generated_at, published_at) VALUES (?, ?, ?, ?)',
+  );
+  const insertRow = db.prepare(
+    `INSERT INTO schedule_items
+       (schedule_id, staff_id, item_id, day_of_week, is_plan_b_standby, is_override, slot_index)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const insertAbsence = db.prepare(
+    'INSERT INTO staff_absences (staff_id, absence_date, absence_type, note) VALUES (?, ?, ?, ?)',
+  );
+  // 帳本一定要跟著還原，否則之後撤回發布會沖銷不掉已累加的次數
+  const insertLedger = db.prepare(
+    `INSERT INTO fairness_ledger (schedule_id, staff_id, blackboard_delta, morning_delta,
+       flag_delta, noon_delta, standby_delta, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  for (const [week, data_] of Object.entries(data.weeks ?? {})) {
+    const info = insertSchedule.run(week, data_.status ?? 'DRAFT',
+      data_.generated_at ?? null, data_.published_at ?? null);
+    const scheduleId = Number(info.lastInsertRowid);
+
+    for (const r of data_.rows ?? []) {
+      insertRow.run(scheduleId, r.staff_id ?? null, r.item_id ?? null, r.day_of_week ?? null,
+        r.is_plan_b_standby ? 1 : 0, r.is_override ? 1 : 0, r.slot_index ?? 0);
+    }
+    for (const a of data_.absences ?? []) {
+      insertAbsence.run(a.staff_id, a.absence_date, a.absence_type ?? 'OFFICIAL', a.note ?? null);
+    }
+    for (const [staffId, delta] of Object.entries(data_.ledger ?? {})) {
+      insertLedger.run(scheduleId, Number(staffId),
+        delta.blackboard_count ?? 0, delta.morning_whiteboard_count ?? 0,
+        delta.flag_whiteboard_count ?? 0, delta.noon_whiteboard_count ?? 0,
+        delta.standby_count ?? 0, data_.published_at ?? new Date().toISOString());
+    }
+  }
+
+  return {
+    staff: data.staff.length,
+    items: data.items.length,
+    weeks: Object.keys(data.weeks ?? {}).length,
+  };
+}

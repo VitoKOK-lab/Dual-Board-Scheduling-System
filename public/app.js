@@ -866,7 +866,7 @@ function renderSettings(body) {
 
   const seg = el('div', 'segmented');
   seg.setAttribute('role', 'tablist');
-  for (const [key, label, iconId] of [['items', '點位', 'i-pin'], ['staff', '成員', 'i-users']]) {
+  for (const [key, label, iconId] of [['items', '點位', 'i-pin'], ['staff', '成員', 'i-users'], ['backup', '備份', 'i-save']]) {
     const b = el('button');
     b.type = 'button';
     b.setAttribute('role', 'tab');
@@ -882,7 +882,89 @@ function renderSettings(body) {
   body.append(seg);
 
   if (adminTab === 'items') renderItemAdmin(body);
-  else renderStaffAdmin(body);
+  else if (adminTab === 'staff') renderStaffAdmin(body);
+  else renderBackupAdmin(body);
+}
+
+/**
+ * 把檔案交給使用者。Artifact 沙箱擋掉頁面自己觸發的下載，
+ * 所以有 downloads 能力時走它，一般網頁才用 <a download>。
+ */
+async function offerDownload(filename, text) {
+  try {
+    const downloads = window.claude?.use ? await window.claude.use('downloads') : null;
+    if (downloads) { await downloads.save({ filename, data: text }); return; }
+  } catch { /* 沒授權就退回一般下載 */ }
+
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const link = el('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function renderBackupAdmin(body) {
+  const card = el('div', 'card admin-form');
+  card.append(el('h3', null, '匯出備份'));
+  card.append(el('p', 'field__hint', '把點位、成員、累計次數與所有週的班表存成一個檔案。建議每次發布班表後存一份。'));
+
+  const exportBtn = el('button', 'btn btn--block btn--primary');
+  exportBtn.type = 'button';
+  exportBtn.append(icon('i-save'), el('span', null, '匯出成檔案'));
+  exportBtn.addEventListener('click', async () => {
+    const dump = await api('/api/backup');
+    const stamp = todayIso().replaceAll('-', '');
+    // 檔名用 ASCII：Chromium 在 blob 下載時會把含中文的檔名整個丟掉，
+    // 而且手機的檔案管理與郵件附件對非 ASCII 檔名也常出包
+    await offerDownload(`dual-board-backup-${stamp}.json`, JSON.stringify(dump, null, 2));
+    toast('已匯出備份');
+  });
+  card.append(exportBtn);
+  body.append(card);
+
+  const restore = el('div', 'card admin-form');
+  restore.append(el('h3', null, '從備份還原'));
+  restore.append(el('p', 'field__hint', '還原會整份取代現在的資料，包含點位、成員與所有班表。這個動作無法復原。'));
+
+  const error = el('p', 'field__error');
+  error.hidden = true;
+  error.setAttribute('role', 'alert');
+
+  const picker = el('input');
+  picker.type = 'file';
+  picker.id = 'backupFile';
+  picker.accept = 'application/json,.json';
+  picker.hidden = true;
+  picker.addEventListener('change', async () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    error.hidden = true;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = await api('/api/backup', { method: 'POST', body: parsed });
+      await loadWeek(todayIso());
+      renderSettings($('#sheetBody'));
+      const n = result.imported;
+      toast(`已還原：${n.items} 個點位、${n.staff} 位成員、${n.weeks} 週班表`);
+    } catch (e) {
+      error.textContent = e instanceof SyntaxError ? '這個檔案不是合法的 JSON。' : e.message;
+      error.hidden = false;
+    } finally {
+      picker.value = '';
+    }
+  });
+
+  const pick = el('button', 'btn btn--block btn--danger');
+  pick.type = 'button';
+  pick.append(icon('i-undo'), el('span', null, '選擇備份檔還原'));
+  pick.addEventListener('click', () => picker.click());
+
+  restore.append(error, pick, picker);
+  body.append(restore);
 }
 
 /** 變更後重抓整週資料，讓供需與班表同步更新。 */

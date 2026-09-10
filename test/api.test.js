@@ -527,3 +527,81 @@ test('成員輸入驗證：姓名不可空白、身分要合法、刪除不存�
     assert.equal((await call('/api/staff/999999', { method: 'DELETE' })).status, 404);
   });
 });
+
+// ---------------------------------------------------------------
+// 備份：匯出與還原
+// ---------------------------------------------------------------
+
+test('匯出的備份含有點位、成員、累計次數與各週班表', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
+    await call('/api/absences', { method: 'POST', body: { staff_id: 48, absence_date: '2026-09-09', note: '研習' } });
+
+    const { body } = await call('/api/backup');
+    assert.equal(body.format, 'dual-board-backup');
+    assert.equal(body.staff.length, 69);
+    assert.equal(body.items.length, 42);
+
+    const week = body.weeks[WEEK];
+    assert.equal(week.status, 'PUBLISHED');
+    assert.equal(week.rows.length, gen.body.assignments.length + gen.body.standby.length);
+    assert.equal(week.absences.length, 1);
+    assert.equal(week.absences[0].note, '研習');
+    assert.ok(Object.keys(week.ledger).length > 0, '已發布的班表應帶著結算帳本');
+  });
+});
+
+test('還原備份會完整重建，包含公平性累計與發布狀態', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const pub = await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
+    const dump = (await call('/api/backup')).body;
+
+    // 先把資料弄亂：刪點位、刪人、改身分
+    const victim = gen.body.items.find((i) => i.shift_type === 'NOON');
+    await call(`/api/items/${victim.item_id}`, { method: 'DELETE' });
+    await call(`/api/staff/${gen.body.staff[0].staff_id}`, { method: 'DELETE' });
+    const messed = await call(`/api/week?week=${WEEK}`);
+    assert.notEqual(messed.body.items.length, 42);
+
+    const restored = await call('/api/backup', { method: 'POST', body: dump });
+    assert.equal(restored.body.imported.staff, 69);
+    assert.equal(restored.body.imported.items, 42);
+    assert.equal(restored.body.imported.weeks, 1);
+
+    const after = await call(`/api/week?week=${WEEK}`);
+    assert.equal(after.body.items.length, 42);
+    assert.equal(after.body.staff.length, 69);
+    assert.equal(after.body.schedule.status, 'PUBLISHED');
+    assert.deepEqual(
+      after.body.fairness.map((f) => [f.staff_id, f.blackboard_count, f.morning_whiteboard_count,
+        f.flag_whiteboard_count, f.noon_whiteboard_count, f.standby_count]),
+      pub.body.fairness.map((f) => [f.staff_id, f.blackboard_count, f.morning_whiteboard_count,
+        f.flag_whiteboard_count, f.noon_whiteboard_count, f.standby_count]),
+    );
+  });
+});
+
+test('還原後撤回發布仍能正確沖銷，代表帳本一起還原了', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
+    const dump = (await call('/api/backup')).body;
+
+    await call('/api/backup', { method: 'POST', body: dump });
+    const view = await call(`/api/week?week=${WEEK}`);
+    const back = await call(`/api/schedules/${view.body.schedule.schedule_id}/unpublish`, { method: 'POST' });
+
+    const total = back.body.fairness.reduce((sum, f) => sum + f.blackboard_count
+      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count + f.standby_count, 0);
+    assert.equal(total, 0, '撤回後應完整歸零');
+  });
+});
+
+test('拒絕不是本系統的備份檔', async () => {
+  await withServer(async ({ call }) => {
+    assert.equal((await call('/api/backup', { method: 'POST', body: { hello: 'world' } })).status, 400);
+    assert.equal((await call('/api/backup', { method: 'POST', body: { format: 'dual-board-backup' } })).status, 400);
+  });
+});

@@ -3,6 +3,7 @@
 import { Router } from './router.js';
 import * as schedule from '../services/scheduleService.js';
 import * as repo from '../services/repository.js';
+import { withTransaction } from '../db/index.js';
 import { currentWeekStart, dateForDay, isIsoDate, mondayOf, shiftWeeks } from '../domain/week.js';
 import { BOARD, ROLE, SHIFT, ZONE } from '../domain/constants.js';
 
@@ -99,6 +100,14 @@ export function buildRouter(db) {
   router.delete('/api/absences/:id', ({ params, query }) => {
     repo.deleteAbsence(db, requireInt(params.id, 'absence_id'));
     return schedule.getWeekView(db, requireWeek(query.get('week')));
+  });
+
+  // ---- 備份 ----
+  router.get('/api/backup', () => repo.exportAll(db));
+
+  router.post('/api/backup', ({ body }) => {
+    const summary = withTransaction(db, () => repo.importAll(db, body));
+    return { imported: summary };
   });
 
   // ---- 點位與任務設定 ----

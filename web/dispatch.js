@@ -107,6 +107,14 @@ async function api(path, { method = 'GET', body } = {}) {
     return getWeekView(week);
   }
 
+  /* ---- 備份 ---- */
+  if (head === 'backup' && method === 'GET') return exportAll();
+
+  if (head === 'backup' && method === 'POST') {
+    const summary = await importAll(body);
+    return { imported: summary };
+  }
+
   /* ---- 點位設定 ---- */
   if (head === 'items' && method === 'GET') return { items: sortedItems() };
 

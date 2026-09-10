@@ -8,9 +8,11 @@
  *   src/server（REST API） →  web/dispatch.js（同樣的路徑與回傳格式）
  * 因此 public/app.js 幾乎原樣搬過去，只做幾處必要修補。
  *
- *   node scripts/build-web.mjs  →  web/dual-board.html
+ *   node scripts/build-web.mjs  →  docs/index.html
+ *
+ * docs/ 是 GitHub Pages 的標準來源目錄，開啟後網站根目錄就是這個頁面。
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -117,6 +119,11 @@ ${script}
 </script>
 `;
 
-const target = join(ROOT, 'web', 'dual-board.html');
+const target = join(ROOT, 'docs', 'index.html');
+mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, out);
+
+// 讓 GitHub Pages 直接照檔案原樣提供，不要跑 Jekyll
+writeFileSync(join(ROOT, 'docs', '.nojekyll'), '');
+
 console.log(`已產生 ${target}（${(Buffer.byteLength(out) / 1024).toFixed(0)} KB）`);
