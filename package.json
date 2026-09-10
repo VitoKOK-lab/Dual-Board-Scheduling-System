@@ -1,0 +1,16 @@
+{
+  "name": "dual-board-scheduling-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "雙板動態排班系統 — 黑板（週矩陣）與白板（區域矩陣）一鍵自動排班、公平輪替與 Plan B 雙層備援",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server/index.js",
+    "reset": "node --no-warnings=ExperimentalWarning scripts/reset-db.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "license": "UNLICENSED"
+}
