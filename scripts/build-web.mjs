@@ -8,9 +8,16 @@
  *   src/server（REST API） →  web/dispatch.js（同樣的路徑與回傳格式）
  * 因此 public/app.js 幾乎原樣搬過去，只做幾處必要修補。
  *
- *   node scripts/build-web.mjs  →  docs/index.html
+ *   node scripts/build-web.mjs  →  docs/index.html、web/artifact.html
  *
- * docs/ 是 GitHub Pages 的標準來源目錄，開啟後網站根目錄就是這個頁面。
+ * 兩份輸出內容相同，只差外框：
+ *   docs/index.html   完整 HTML 文件，給 GitHub Pages 之類的靜態主機。
+ *                     docs/ 是 GitHub Pages 的標準來源目錄。
+ *   web/artifact.html 只有內容、沒有 <html>/<head>，給 Claude Artifact，
+ *                     它會在發布時自己補上外框。
+ *
+ * 這件事不能混：靜態主機不會補 viewport meta，少了它手機會用 980px
+ * 桌面寬度渲染再縮小，整個介面變成一團看不清的小字。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -100,30 +107,63 @@ const body = html.slice(html.indexOf('<body>') + '<body>'.length, html.indexOf('
 
 const script = [domain, read('web', 'store.js'), read('web', 'services.js'), read('web', 'dispatch.js'), app].join('\n\n');
 
-const out = `<title>雙板排班</title>
+const HEAD = `<title>雙板排班</title>
 <meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、Plan B 雙層備援。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap">
 <style>
 ${read('public', 'styles.css')}
-</style>
+</style>`;
 
-${body}
+const BODY = `${body}
 
 <script>
 (function () {
 'use strict';
 ${script}
 }())
-</script>
+</script>`;
+
+// Artifact 版：只有內容，發布時由平台補上 <html>/<head>
+const artifactHtml = `${HEAD}
+
+${BODY}
 `;
 
-const target = join(ROOT, 'docs', 'index.html');
-mkdirSync(dirname(target), { recursive: true });
-writeFileSync(target, out);
+// 靜態主機版：完整文件，viewport meta 是手機能不能看的關鍵
+const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'"
+  + "%3E%3Crect width='32' height='32' rx='8' fill='%23FBFBFC'/%3E"
+  + "%3Crect x='5' y='7' width='9' height='18' rx='3' fill='%232F5FD0'/%3E"
+  + "%3Crect x='18' y='7' width='9' height='18' rx='3' fill='%230F9B8E'/%3E%3C/svg%3E";
 
-// 讓 GitHub Pages 直接照檔案原樣提供，不要跑 Jekyll
-writeFileSync(join(ROOT, 'docs', '.nojekyll'), '');
+const standaloneHtml = `<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FBFBFC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="雙板排班">
+<link rel="icon" href="${FAVICON}">
+<link rel="apple-touch-icon" href="${FAVICON}">
+${HEAD}
+</head>
+<body>
+${BODY}
+</body>
+</html>
+`;
 
-console.log(`已產生 ${target}（${(Buffer.byteLength(out) / 1024).toFixed(0)} KB）`);
+const pagesTarget = join(ROOT, 'docs', 'index.html');
+mkdirSync(dirname(pagesTarget), { recursive: true });
+writeFileSync(pagesTarget, standaloneHtml);
+writeFileSync(join(ROOT, 'docs', '.nojekyll'), ''); // 讓 GitHub Pages 照檔案原樣提供，不跑 Jekyll
+
+const artifactTarget = join(ROOT, 'web', 'artifact.html');
+writeFileSync(artifactTarget, artifactHtml);
+
+const kb = (text) => `${(Buffer.byteLength(text) / 1024).toFixed(0)} KB`;
+console.log(`已產生 ${pagesTarget}（${kb(standaloneHtml)}，完整 HTML 文件）`);
+console.log(`已產生 ${artifactTarget}（${kb(artifactHtml)}，Artifact 用片段）`);
