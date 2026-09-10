@@ -128,6 +128,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 
 .appbar__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+.appbar__actions { display: flex; align-items: center; gap: 2px; }
 .appbar__title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .appbar__title h1 { font-size: 19px; letter-spacing: .02em; }
 
@@ -548,3 +549,44 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .zone-head::after {
   content: ''; flex: 1; height: 1px; background: var(--border);
 }
+
+/* ---- 15. 設定：點位與成員管理 ---- */
+.admin-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-top: 1px solid var(--border);
+}
+.admin-row:first-child { border-top: 0; }
+.admin-row__main { flex: 1; min-width: 0; }
+/* 名稱列有改名鈕時，副標往上收，避免整列過高 */
+.admin-row__name--edit + .admin-row__sub { margin-top: -6px; }
+.admin-row__name { font-size: 15px; font-weight: 500; }
+.admin-row__name--edit {
+  display: flex; align-items: center; width: 100%; min-height: 44px; padding: 0;
+  border: 0; background: none; text-align: left;
+  text-decoration: underline; text-decoration-color: var(--border-strong);
+  text-underline-offset: 4px;
+}
+.admin-row__rename { display: flex; align-items: center; gap: 4px; }
+.admin-row__rename input {
+  flex: 1; min-width: 0; min-height: 44px; padding: 0 12px;
+  font: inherit; font-size: 16px; color: var(--ink);
+  background: var(--sunken); border: 1px solid var(--sapphire); border-radius: var(--r-sm);
+}
+.admin-row__sub { font-size: 12px; color: var(--ink-3); }
+
+.stepper { display: flex; align-items: center; gap: 2px; flex: none; }
+.stepper button {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  border: 0; background: none; border-radius: var(--r-sm); color: var(--ink-2);
+}
+.stepper button:disabled { opacity: .3; }
+.stepper button:active { background: var(--sunken); }
+.stepper .icon { width: 18px; height: 18px; }
+.stepper__value { min-width: 22px; text-align: center; font-size: 15px; font-weight: 700; }
+
+.admin-row__confirm { display: flex; gap: 6px; align-items: center; }
+.admin-row__confirm span { font-size: 13px; color: var(--ruby-ink); font-weight: 700; margin-right: 2px; }
+
+.admin-form { display: flex; flex-direction: column; gap: 10px; }
+.admin-form__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.admin-form__grid .field { min-width: 0; }

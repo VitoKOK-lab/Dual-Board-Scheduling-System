@@ -844,6 +844,405 @@ function openStaffSheet(person) {
   });
 }
 
+
+/* ---------- 設定：點位與成員管理 ---------- */
+
+const BOARD_SECTIONS = [
+  { board: 'WHITEBOARD', shift: 'MORNING', label: '白板・早修' },
+  { board: 'WHITEBOARD', shift: 'FLAG', label: '白板・升旗' },
+  { board: 'WHITEBOARD', shift: 'NOON', label: '白板・午休' },
+  { board: 'BLACKBOARD', shift: 'ALL_WEEK', label: '黑板・全週職務' },
+  { board: 'BLACKBOARD', shift: 'DAILY', label: '黑板・每日職務' },
+];
+
+let adminTab = 'items';
+
+function openSettings() {
+  openSheet('設定', '調整點位與成員後，回到看板按閃電鈕重新排班', renderSettings);
+}
+
+function renderSettings(body) {
+  body.replaceChildren();
+
+  const seg = el('div', 'segmented');
+  seg.setAttribute('role', 'tablist');
+  for (const [key, label, iconId] of [['items', '點位', 'i-pin'], ['staff', '成員', 'i-users']]) {
+    const b = el('button');
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(adminTab === key));
+    b.append(icon(iconId), document.createTextNode(label));
+    b.style.display = 'inline-flex';
+    b.style.alignItems = 'center';
+    b.style.justifyContent = 'center';
+    b.style.gap = '6px';
+    b.addEventListener('click', () => { adminTab = key; renderSettings(body); });
+    seg.append(b);
+  }
+  body.append(seg);
+
+  if (adminTab === 'items') renderItemAdmin(body);
+  else renderStaffAdmin(body);
+}
+
+/** 變更後重抓整週資料，讓供需與班表同步更新。 */
+async function afterAdminChange(body, message) {
+  await loadWeek(state.week);
+  renderSettings(body);
+  toast(message);
+}
+
+function renderItemAdmin(body) {
+  const form = el('div', 'card admin-form');
+  form.append(el('h3', null, '新增點位'));
+
+  const grid = el('div', 'admin-form__grid');
+
+  const sectionField = el('div', 'field');
+  const sectionLabel = el('label', null, '時段');
+  sectionLabel.setAttribute('for', 'newItemSection');
+  const sectionSelect = el('select');
+  sectionSelect.id = 'newItemSection';
+  for (const [i, sec] of BOARD_SECTIONS.entries()) sectionSelect.append(new Option(sec.label, String(i)));
+  sectionField.append(sectionLabel, sectionSelect);
+
+  const zoneField = el('div', 'field');
+  const zoneLabel = el('label', null, '分區');
+  zoneLabel.setAttribute('for', 'newItemZone');
+  const zoneSelect = el('select');
+  zoneSelect.id = 'newItemZone';
+  zoneSelect.append(new Option('定點', '定點'), new Option('巡查', '巡查'));
+  zoneField.append(zoneLabel, zoneSelect);
+
+  const capField = el('div', 'field');
+  const capLabel = el('label', null, '人數');
+  capLabel.setAttribute('for', 'newItemCap');
+  const capInput = el('input');
+  capInput.type = 'number';
+  capInput.id = 'newItemCap';
+  capInput.min = '1';
+  capInput.max = '20';
+  capInput.value = '2';
+  capInput.inputMode = 'numeric';
+  capField.append(capLabel, capInput);
+
+  const nameField = el('div', 'field');
+  const nameLabel = el('label', null, '點位名稱');
+  nameLabel.setAttribute('for', 'newItemName');
+  const nameInput = el('input');
+  nameInput.type = 'text';
+  nameInput.id = 'newItemName';
+  nameInput.placeholder = '例：育英樓 1F';
+  nameField.append(nameLabel, nameInput);
+
+  const syncZone = () => {
+    zoneField.hidden = BOARD_SECTIONS[Number(sectionSelect.value)].shift !== 'FLAG';
+  };
+  sectionSelect.addEventListener('change', syncZone);
+  syncZone();
+
+  grid.append(sectionField, capField);
+  form.append(grid, nameField, zoneField);
+
+  const error = el('p', 'field__error');
+  error.hidden = true;
+  error.setAttribute('role', 'alert');
+  form.append(error);
+
+  const submit = el('button', 'btn btn--block btn--primary');
+  submit.type = 'button';
+  submit.append(icon('i-plus'), el('span', null, '新增點位'));
+  submit.addEventListener('click', async () => {
+    const sec = BOARD_SECTIONS[Number(sectionSelect.value)];
+    const name = nameInput.value.trim();
+    if (!name) {
+      error.textContent = '請輸入點位名稱。';
+      error.hidden = false;
+      nameInput.focus();
+      return;
+    }
+    try {
+      await api('/api/items', {
+        method: 'POST',
+        body: {
+          board_type: sec.board,
+          shift_type: sec.shift,
+          item_name: name,
+          required_capacity: Number(capInput.value) || 1,
+          zone: sec.shift === 'FLAG' ? zoneSelect.value : '',
+        },
+      });
+    } catch (e) {
+      error.textContent = e.message;
+      error.hidden = false;
+      return;
+    }
+    await afterAdminChange($('#sheetBody'), `已新增「${name}」`);
+  });
+  form.append(submit);
+  body.append(form);
+
+  for (const sec of BOARD_SECTIONS) {
+    const rows = state.data.items.filter((i) => i.board_type === sec.board && i.shift_type === sec.shift);
+
+    const head = el('div', 'section-head');
+    head.append(el('h2', null, sec.label));
+    const slots = rows.reduce((sum, i) => sum + i.required_capacity, 0);
+    head.append(el('span', 'section-head__meta', `${rows.length} 點 · ${slots} 名額`));
+    body.append(head);
+
+    const card = el('div', 'card card--flush');
+    if (rows.length === 0) {
+      card.append(el('p', 'field__hint', '尚未設定點位。'));
+    } else {
+      for (const item of rows) card.append(itemAdminRow(item));
+    }
+    body.append(card);
+  }
+}
+
+function itemAdminRow(item) {
+  const row = el('div', 'admin-row');
+
+  const main = el('div', 'admin-row__main');
+  main.append(editableName(item.item_name, async (next) => {
+    await api(`/api/items/${item.item_id}`, { method: 'PATCH', body: { item_name: next } });
+    await afterAdminChange($('#sheetBody'), `已改名為「${next}」`);
+  }));
+  if (item.zone) main.append(el('div', 'admin-row__sub', item.zone));
+  row.append(main);
+
+  const stepper = el('div', 'stepper');
+  const minus = el('button');
+  minus.type = 'button';
+  minus.setAttribute('aria-label', `${item.item_name} 減少一人`);
+  minus.append(icon('i-minus'));
+  minus.disabled = item.required_capacity <= 1;
+
+  const value = el('span', 'stepper__value mono', String(item.required_capacity));
+
+  const plus = el('button');
+  plus.type = 'button';
+  plus.setAttribute('aria-label', `${item.item_name} 增加一人`);
+  plus.append(icon('i-plus'));
+  plus.disabled = item.required_capacity >= 20;
+
+  const setCapacity = async (next) => {
+    await api(`/api/items/${item.item_id}`, { method: 'PATCH', body: { required_capacity: next } });
+    await afterAdminChange($('#sheetBody'), `${item.item_name} 改為 ${next} 人`);
+  };
+  minus.addEventListener('click', () => setCapacity(item.required_capacity - 1));
+  plus.addEventListener('click', () => setCapacity(item.required_capacity + 1));
+  stepper.append(minus, value, plus);
+  row.append(stepper);
+
+  row.append(deleteControl(row, `刪除點位「${item.item_name}」`, async () => {
+    const res = await api(`/api/items/${item.item_id}`, { method: 'DELETE' });
+    await afterAdminChange($('#sheetBody'), res.removed_assignments
+      ? `已刪除「${item.item_name}」，同時移除 ${res.removed_assignments} 個班表名額`
+      : `已刪除「${item.item_name}」`);
+  }));
+
+  return row;
+}
+
+function renderStaffAdmin(body) {
+  const form = el('div', 'card admin-form');
+  form.append(el('h3', null, '新增成員'));
+
+  const nameField = el('div', 'field');
+  const nameLabel = el('label', null, '姓名');
+  nameLabel.setAttribute('for', 'newStaffName');
+  const nameInput = el('input');
+  nameInput.type = 'text';
+  nameInput.id = 'newStaffName';
+  nameInput.placeholder = '例：王小明';
+  nameField.append(nameLabel, nameInput);
+
+  const grid = el('div', 'admin-form__grid');
+
+  const groupField = el('div', 'field');
+  const groupLabel = el('label', null, '學級');
+  groupLabel.setAttribute('for', 'newStaffGroup');
+  const groupInput = el('input');
+  groupInput.type = 'text';
+  groupInput.id = 'newStaffGroup';
+  groupInput.placeholder = '高一組';
+  groupInput.setAttribute('list', 'groupOptions');
+  const datalist = el('datalist');
+  datalist.id = 'groupOptions';
+  for (const g of state.data.groups ?? []) datalist.append(new Option(g.name, g.name));
+  groupField.append(groupLabel, groupInput, datalist);
+
+  const roleField = el('div', 'field');
+  const roleLabel = el('label', null, '身分');
+  roleLabel.setAttribute('for', 'newStaffRole');
+  const roleSelect = el('select');
+  roleSelect.id = 'newStaffRole';
+  roleSelect.append(new Option('徒弟（不排班）', 'APPRENTICE'), new Option('師傅（可排班）', 'MASTER'));
+  roleField.append(roleLabel, roleSelect);
+
+  grid.append(groupField, roleField);
+  form.append(nameField, grid);
+
+  const error = el('p', 'field__error');
+  error.hidden = true;
+  error.setAttribute('role', 'alert');
+  form.append(error);
+
+  const submit = el('button', 'btn btn--block btn--primary');
+  submit.type = 'button';
+  submit.append(icon('i-plus'), el('span', null, '新增成員'));
+  submit.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      error.textContent = '請輸入姓名。';
+      error.hidden = false;
+      nameInput.focus();
+      return;
+    }
+    try {
+      await api('/api/staff', {
+        method: 'POST',
+        body: { name, staff_group: groupInput.value.trim(), role: roleSelect.value },
+      });
+    } catch (e) {
+      error.textContent = e.message;
+      error.hidden = false;
+      return;
+    }
+    await afterAdminChange($('#sheetBody'), `已新增「${name}」`);
+  });
+  form.append(submit);
+  body.append(form);
+
+  for (const [role, label] of [['MASTER', '師傅（可排班）'], ['APPRENTICE', '徒弟（不排班）']]) {
+    const rows = state.data.staff.filter((s) => s.role === role);
+
+    const head = el('div', 'section-head');
+    head.append(el('h2', null, label));
+    head.append(el('span', 'section-head__meta', `${rows.length} 位`));
+    body.append(head);
+
+    const card = el('div', 'card card--flush');
+    if (rows.length === 0) {
+      card.append(el('p', 'field__hint', '目前沒有人。'));
+    } else {
+      for (const person of rows) card.append(staffAdminRow(person));
+    }
+    body.append(card);
+  }
+}
+
+function staffAdminRow(person) {
+  const row = el('div', 'admin-row');
+
+  const main = el('div', 'admin-row__main');
+  main.append(editableName(person.name, async (next) => {
+    await api(`/api/staff/${person.staff_id}`, { method: 'PATCH', body: { name: next } });
+    await afterAdminChange($('#sheetBody'), `已改名為「${next}」`);
+  }, !person.is_active));
+  main.append(el('div', 'admin-row__sub', person.is_active ? person.staff_group : `${person.staff_group}・已停用`));
+  row.append(main);
+
+  const swap = el('button', 'btn btn--sm btn--quiet');
+  swap.type = 'button';
+  swap.textContent = person.role === 'MASTER' ? '降為徒弟' : '升為師傅';
+  swap.addEventListener('click', async () => {
+    await api(`/api/staff/${person.staff_id}`, {
+      method: 'PATCH',
+      body: { role: person.role === 'MASTER' ? 'APPRENTICE' : 'MASTER' },
+    });
+    await afterAdminChange($('#sheetBody'), `${person.name} 已${person.role === 'MASTER' ? '降為徒弟' : '升為師傅'}`);
+  });
+  row.append(swap);
+
+  row.append(deleteControl(row, `刪除成員「${person.name}」`, async () => {
+    const res = await api(`/api/staff/${person.staff_id}`, { method: 'DELETE' });
+    await afterAdminChange($('#sheetBody'), res.vacated_slots
+      ? `已刪除「${person.name}」，班表上 ${res.vacated_slots} 個名額變成空缺`
+      : `已刪除「${person.name}」`);
+  }));
+
+  return row;
+}
+
+/**
+ * 名稱就地改名：點一下變成輸入框。
+ * 照片辨識不出的點位（待確認…）需要能直接改，不該只能刪掉重建。
+ */
+function editableName(current, onSave, dimmed = false) {
+  const button = el('button', `admin-row__name admin-row__name--edit${dimmed ? ' person--off' : ''}`);
+  button.type = 'button';
+  button.textContent = current;
+  button.setAttribute('aria-label', `重新命名「${current}」`);
+
+  button.addEventListener('click', () => {
+    const box = el('div', 'admin-row__rename');
+    const input = el('input');
+    input.type = 'text';
+    input.value = current;
+    input.setAttribute('aria-label', '新名稱');
+
+    const commit = async () => {
+      const next = input.value.trim();
+      if (!next || next === current) { box.replaceWith(button); return; }
+      await onSave(next);
+    };
+
+    const ok = el('button', 'iconbtn');
+    ok.type = 'button';
+    ok.setAttribute('aria-label', '儲存名稱');
+    ok.append(icon('i-check'));
+    ok.addEventListener('click', commit);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit();
+      if (e.key === 'Escape') box.replaceWith(button);
+    });
+
+    box.append(input, ok);
+    button.replaceWith(box);
+    input.focus();
+    input.select();
+  });
+
+  return button;
+}
+
+/**
+ * 刪除按鈕：點一下就地展開「確定／取消」，不另開對話框。
+ * 巢狀的 bottom sheet 在手機上很容易誤觸，就地確認更安全也更快。
+ */
+function deleteControl(row, ariaLabel, onConfirm) {
+  const wrap = el('div');
+
+  const trigger = el('button', 'iconbtn');
+  trigger.type = 'button';
+  trigger.setAttribute('aria-label', ariaLabel);
+  trigger.append(icon('i-trash'));
+
+  trigger.addEventListener('click', () => {
+    const confirmBox = el('div', 'admin-row__confirm');
+    confirmBox.append(el('span', null, '確定刪除？'));
+
+    const cancel = el('button', 'btn btn--sm btn--quiet', '取消');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => confirmBox.replaceWith(trigger));
+
+    const ok = el('button', 'btn btn--sm btn--danger', '刪除');
+    ok.type = 'button';
+    ok.addEventListener('click', onConfirm);
+
+    confirmBox.append(cancel, ok);
+    trigger.replaceWith(confirmBox);
+    ok.focus();
+  });
+
+  wrap.append(trigger);
+  return trigger;
+}
+
 /* ---------- 拖拉換人（Pointer Events） ---------- */
 
 const drag = { active: false, armed: false, fromId: null, ghost: null, startX: 0, startY: 0, target: null };
@@ -1024,6 +1423,7 @@ function bindChrome() {
     }
   });
 
+  $('#settingsBtn').addEventListener('click', openSettings);
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#scrim').addEventListener('click', closeSheet);
   document.addEventListener('keydown', (e) => {

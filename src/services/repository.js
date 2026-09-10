@@ -42,6 +42,10 @@ export function createStaff(db, name, staffGroup = '', role = 'APPRENTICE') {
   return staffId;
 }
 
+export function renameStaff(db, staffId, name) {
+  db.prepare('UPDATE staff SET name = ? WHERE staff_id = ?').run(name, staffId);
+}
+
 export function setStaffActive(db, staffId, isActive) {
   db.prepare('UPDATE staff SET is_active = ? WHERE staff_id = ?').run(isActive ? 1 : 0, staffId);
 }
@@ -51,6 +55,59 @@ export function listItems(db) {
     `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
        FROM location_tasks ORDER BY board_type, shift_type, sort_order, item_id`,
   ).all();
+}
+
+export function findItem(db, itemId) {
+  return db.prepare(
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
+       FROM location_tasks WHERE item_id = ?`,
+  ).get(itemId) ?? null;
+}
+
+export function createItem(db, { boardType, shiftType, itemName, requiredCapacity = 1, zone = '' }) {
+  const nextOrder = db.prepare(
+    'SELECT COALESCE(MAX(sort_order), 0) + 10 AS n FROM location_tasks WHERE board_type = ? AND shift_type = ?',
+  ).get(boardType, shiftType).n;
+
+  const info = db.prepare(
+    `INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, zone, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(boardType, shiftType, itemName, requiredCapacity, zone, nextOrder);
+  return Number(info.lastInsertRowid);
+}
+
+export function updateItem(db, itemId, patch) {
+  const columns = {
+    item_name: patch.itemName,
+    required_capacity: patch.requiredCapacity,
+    zone: patch.zone,
+    sort_order: patch.sortOrder,
+  };
+  const entries = Object.entries(columns).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+
+  const setSql = entries.map(([col]) => `${col} = ?`).join(', ');
+  db.prepare(`UPDATE location_tasks SET ${setSql} WHERE item_id = ?`)
+    .run(...entries.map(([, v]) => v), itemId);
+}
+
+/** 刪除點位會連帶刪掉所有班表上引用它的名額（ON DELETE CASCADE）。 */
+export function deleteItem(db, itemId) {
+  db.prepare('DELETE FROM location_tasks WHERE item_id = ?').run(itemId);
+}
+
+/** 刪除人員：班表上的名額會變成空缺（ON DELETE SET NULL），統計與公差一併移除。 */
+export function deleteStaff(db, staffId) {
+  db.prepare('DELETE FROM staff WHERE staff_id = ?').run(staffId);
+}
+
+/** 該人員目前在幾個名額上；刪除前用來提醒主管。 */
+export function countStaffAssignments(db, staffId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM schedule_items WHERE staff_id = ?').get(staffId).n;
+}
+
+export function countItemAssignments(db, itemId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM schedule_items WHERE item_id = ?').get(itemId).n;
 }
 
 export function itemsById(db) {

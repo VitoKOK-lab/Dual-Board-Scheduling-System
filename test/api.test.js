@@ -372,3 +372,158 @@ test('預備隊次數計入 standby_count，不計入工作量', async () => {
     }
   });
 });
+
+// ---------------------------------------------------------------
+// 設定後台：點位與成員的新增／修改／刪除
+// ---------------------------------------------------------------
+
+test('新增點位後，該時段的名額總數與供需摘要同步更新', async () => {
+  await withServer(async ({ call }) => {
+    const before = await call(`/api/week?week=${WEEK}`);
+    const noonBefore = before.body.capacity.shifts.find((s) => s.shift_type === 'NOON');
+
+    const created = await call('/api/items', {
+      method: 'POST',
+      body: { board_type: 'WHITEBOARD', shift_type: 'NOON', item_name: '新光大樓', required_capacity: 2 },
+    });
+    assert.ok(created.body.item_id);
+
+    const after = await call(`/api/week?week=${WEEK}`);
+    const noonAfter = after.body.capacity.shifts.find((s) => s.shift_type === 'NOON');
+    assert.equal(noonAfter.points, noonBefore.points + 1);
+    assert.equal(noonAfter.slots, noonBefore.slots + 2);
+  });
+});
+
+test('點位可以改名與調整人數', async () => {
+  await withServer(async ({ call }) => {
+    const { body } = await call('/api/items');
+    const target = body.items.find((i) => i.item_name === '待確認 3F');
+    assert.ok(target, '種子資料應有待確認的佔位點位');
+
+    await call(`/api/items/${target.item_id}`, {
+      method: 'PATCH', body: { item_name: '莊敬樓 3F', required_capacity: 3 },
+    });
+
+    const after = await call('/api/items');
+    const updated = after.body.items.find((i) => i.item_id === target.item_id);
+    assert.equal(updated.item_name, '莊敬樓 3F');
+    assert.equal(updated.required_capacity, 3);
+    assert.ok(!after.body.items.some((i) => i.item_name === '待確認 3F'));
+  });
+});
+
+test('刪除點位會一併移除班表上引用它的名額', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const target = gen.body.items.find((i) => i.shift_type === 'NOON');
+    const before = gen.body.assignments.filter((a) => a.item_id === target.item_id).length;
+    assert.ok(before > 0);
+
+    const res = await call(`/api/items/${target.item_id}`, { method: 'DELETE' });
+    assert.equal(res.removed_assignments ?? res.body.removed_assignments, before);
+
+    const after = await call(`/api/week?week=${WEEK}`);
+    assert.ok(!after.body.assignments.some((a) => a.item_id === target.item_id));
+    assert.ok(!after.body.items.some((i) => i.item_id === target.item_id));
+  });
+});
+
+test('同一時段不允許同名點位', async () => {
+  await withServer(async ({ call }) => {
+    const first = await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'NOON', item_name: '重複測試' },
+    });
+    assert.equal(first.status, 200);
+
+    const second = await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'NOON', item_name: '重複測試' },
+    });
+    assert.equal(second.status, 400);
+
+    // 不同時段可以同名
+    const other = await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'MORNING', item_name: '重複測試' },
+    });
+    assert.equal(other.status, 200);
+  });
+});
+
+test('點位輸入驗證：時段與板別要相符、人數要在範圍內', async () => {
+  await withServer(async ({ call }) => {
+    assert.equal((await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'DAILY', item_name: 'X' },
+    })).status, 400, '白板不接受黑板時段');
+
+    assert.equal((await call('/api/items', {
+      method: 'POST', body: { board_type: 'BLACKBOARD', shift_type: 'NOON', item_name: 'X' },
+    })).status, 400, '黑板不接受白板時段');
+
+    assert.equal((await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'NOON', item_name: 'X', required_capacity: 0 },
+    })).status, 400);
+
+    assert.equal((await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'NOON', item_name: '  ' },
+    })).status, 400);
+
+    assert.equal((await call('/api/items', {
+      method: 'POST', body: { board_type: 'WHITEBOARD', shift_type: 'FLAG', item_name: 'X', zone: '亂寫' },
+    })).status, 400);
+
+    assert.equal((await call('/api/items/999999', { method: 'PATCH', body: { item_name: 'X' } })).status, 404);
+    assert.equal((await call('/api/items/999999', { method: 'DELETE' })).status, 404);
+  });
+});
+
+test('新增成員後可直接進入排班池', async () => {
+  await withServer(async ({ call }) => {
+    const created = await call('/api/staff', {
+      method: 'POST', body: { name: '新任師傅', staff_group: '高二組', role: 'MASTER' },
+    });
+    assert.ok(created.body.staff_id);
+
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    assert.equal(gen.body.capacity.masters, 23);
+    assert.ok(
+      gen.body.assignments.some((a) => a.staff_id === created.body.staff_id)
+        || gen.body.standby.some((s) => s.staff_id === created.body.staff_id),
+    );
+  });
+});
+
+test('刪除成員後，他在班表上的名額變成空缺', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const slot = gen.body.assignments.find((a) => a.staff_id != null);
+    const staffId = slot.staff_id;
+    const held = gen.body.assignments.filter((a) => a.staff_id === staffId).length;
+
+    const res = await call(`/api/staff/${staffId}`, { method: 'DELETE' });
+    assert.equal(res.body.vacated_slots, held);
+
+    const after = await call(`/api/week?week=${WEEK}`);
+    assert.ok(!after.body.staff.some((s) => s.staff_id === staffId));
+    assert.ok(!after.body.assignments.some((a) => a.staff_id === staffId));
+    assert.equal(after.body.warnings.filter((w) => w.detail_id === slot.detail_id).length, 1, '該名額應成為待補');
+  });
+});
+
+test('成員可以改名', async () => {
+  await withServer(async ({ call }) => {
+    const { body } = await call('/api/staff');
+    const target = body.staff[0];
+
+    await call(`/api/staff/${target.staff_id}`, { method: 'PATCH', body: { name: '改過的名字' } });
+    const after = await call('/api/staff');
+    assert.equal(after.body.staff.find((s) => s.staff_id === target.staff_id).name, '改過的名字');
+  });
+});
+
+test('成員輸入驗證：姓名不可空白、身分要合法、刪除不存在的人回 404', async () => {
+  await withServer(async ({ call }) => {
+    assert.equal((await call('/api/staff', { method: 'POST', body: { name: '  ' } })).status, 400);
+    assert.equal((await call('/api/staff', { method: 'POST', body: { name: 'X', role: '亂寫' } })).status, 400);
+    assert.equal((await call('/api/staff/999999', { method: 'DELETE' })).status, 404);
+  });
+});

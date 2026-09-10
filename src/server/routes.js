@@ -4,6 +4,7 @@ import { Router } from './router.js';
 import * as schedule from '../services/scheduleService.js';
 import * as repo from '../services/repository.js';
 import { currentWeekStart, dateForDay, isIsoDate, mondayOf, shiftWeeks } from '../domain/week.js';
+import { BOARD, ROLE, SHIFT, ZONE } from '../domain/constants.js';
 
 const bad = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -17,6 +18,18 @@ function requireInt(value, field) {
   const n = Number(value);
   if (!Number.isInteger(n)) throw bad(`${field} 需為整數`);
   return n;
+}
+
+function requireOneOf(value, allowed, field) {
+  if (!allowed.includes(value)) throw bad(`${field} 需為 ${allowed.join(' / ')}`);
+  return value;
+}
+
+function requireName(value, field = 'name') {
+  const name = String(value ?? '').trim();
+  if (!name) throw bad(`${field} 不可為空`);
+  if (name.length > 40) throw bad(`${field} 不可超過 40 字`);
+  return name;
 }
 
 export function buildRouter(db) {
@@ -88,6 +101,74 @@ export function buildRouter(db) {
     return schedule.getWeekView(db, requireWeek(query.get('week')));
   });
 
+  // ---- 點位與任務設定 ----
+  router.get('/api/items', () => ({ items: repo.listItems(db) }));
+
+  router.post('/api/items', ({ body }) => {
+    const boardType = requireOneOf(body.board_type, Object.values(BOARD), 'board_type');
+    const shiftType = requireOneOf(body.shift_type, Object.values(SHIFT), 'shift_type');
+
+    if (boardType === BOARD.WHITEBOARD && ![SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON].includes(shiftType)) {
+      throw bad('白板時段需為 MORNING / FLAG / NOON');
+    }
+    if (boardType === BOARD.BLACKBOARD && ![SHIFT.ALL_WEEK, SHIFT.DAILY].includes(shiftType)) {
+      throw bad('黑板時段需為 ALL_WEEK / DAILY');
+    }
+
+    const capacity = requireInt(body.required_capacity ?? 1, 'required_capacity');
+    if (capacity < 1 || capacity > 20) throw bad('required_capacity 需介於 1~20');
+
+    const zone = String(body.zone ?? '').trim();
+    if (zone && !Object.values(ZONE).includes(zone)) throw bad(`zone 需為 ${Object.values(ZONE).join(' / ')}`);
+
+    try {
+      const itemId = repo.createItem(db, {
+        boardType, shiftType, itemName: requireName(body.item_name, 'item_name'), requiredCapacity: capacity, zone,
+      });
+      return { item_id: itemId, items: repo.listItems(db) };
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) throw bad('這個時段已經有同名點位');
+      throw error;
+    }
+  });
+
+  router.patch('/api/items/:id', ({ params, body }) => {
+    const itemId = requireInt(params.id, 'item_id');
+    if (!repo.findItem(db, itemId)) throw Object.assign(new Error('點位不存在'), { status: 404 });
+
+    const patch = {};
+    if (body.item_name !== undefined) patch.itemName = requireName(body.item_name, 'item_name');
+    if (body.required_capacity !== undefined) {
+      const capacity = requireInt(body.required_capacity, 'required_capacity');
+      if (capacity < 1 || capacity > 20) throw bad('required_capacity 需介於 1~20');
+      patch.requiredCapacity = capacity;
+    }
+    if (body.zone !== undefined) {
+      const zone = String(body.zone).trim();
+      if (zone && !Object.values(ZONE).includes(zone)) throw bad(`zone 需為 ${Object.values(ZONE).join(' / ')}`);
+      patch.zone = zone;
+    }
+    if (body.sort_order !== undefined) patch.sortOrder = requireInt(body.sort_order, 'sort_order');
+
+    try {
+      repo.updateItem(db, itemId, patch);
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) throw bad('這個時段已經有同名點位');
+      throw error;
+    }
+    return { items: repo.listItems(db) };
+  });
+
+  router.delete('/api/items/:id', ({ params }) => {
+    const itemId = requireInt(params.id, 'item_id');
+    const item = repo.findItem(db, itemId);
+    if (!item) throw Object.assign(new Error('點位不存在'), { status: 404 });
+
+    const affected = repo.countItemAssignments(db, itemId);
+    repo.deleteItem(db, itemId);
+    return { items: repo.listItems(db), removed_assignments: affected };
+  });
+
   // ---- 人員 ----
   router.get('/api/staff', () => ({
     staff: repo.listStaff(db),
@@ -96,25 +177,37 @@ export function buildRouter(db) {
   }));
 
   router.post('/api/staff', ({ body }) => {
-    const name = String(body.name ?? '').trim();
-    if (!name) throw bad('name 不可為空');
+    const name = requireName(body.name);
     const staffGroup = String(body.staff_group ?? '').trim();
-    const role = body.role ?? 'APPRENTICE';
-    if (!['MASTER', 'APPRENTICE'].includes(role)) throw bad('role 需為 MASTER 或 APPRENTICE');
-    return { staff_id: repo.createStaff(db, name, staffGroup, role), staff: repo.listStaff(db) };
+    const role = requireOneOf(body.role ?? ROLE.APPRENTICE, Object.values(ROLE), 'role');
+    return {
+      staff_id: repo.createStaff(db, name, staffGroup, role),
+      staff: repo.listStaff(db),
+      groups: repo.listGroups(db),
+    };
   });
 
   router.patch('/api/staff/:id', ({ params, body }) => {
     const staffId = requireInt(params.id, 'staff_id');
 
+    if (body.name !== undefined) repo.renameStaff(db, staffId, requireName(body.name));
     if (body.role !== undefined) {
-      if (!['MASTER', 'APPRENTICE'].includes(body.role)) throw bad('role 需為 MASTER 或 APPRENTICE');
-      repo.setStaffRole(db, staffId, body.role);
+      repo.setStaffRole(db, staffId, requireOneOf(body.role, Object.values(ROLE), 'role'));
     }
     if (body.is_active !== undefined) {
       repo.setStaffActive(db, staffId, Boolean(body.is_active));
     }
     return { staff: repo.listStaff(db), fairness: repo.listFairness(db), groups: repo.listGroups(db) };
+  });
+
+  router.delete('/api/staff/:id', ({ params }) => {
+    const staffId = requireInt(params.id, 'staff_id');
+    if (!repo.listStaff(db).some((s) => s.staff_id === staffId)) {
+      throw Object.assign(new Error('人員不存在'), { status: 404 });
+    }
+    const affected = repo.countStaffAssignments(db, staffId);
+    repo.deleteStaff(db, staffId);
+    return { staff: repo.listStaff(db), groups: repo.listGroups(db), vacated_slots: affected };
   });
 
   return router;

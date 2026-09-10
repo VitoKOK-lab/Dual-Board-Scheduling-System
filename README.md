@@ -16,7 +16,7 @@
 ```bash
 npm run reset    # 建立資料庫並灌入名冊（69 位人員、42 個點位／任務）
 npm start        # http://localhost:3000
-npm test         # 77 個測試
+npm test         # 86 個測試
 ```
 
 環境變數：`PORT`（預設 3000）、`HOST`（預設 0.0.0.0）、`DB_PATH`（預設 `data/scheduling.db`）。
@@ -149,6 +149,7 @@ test/              node:test 測試（week / scheduler / planX / api）
 | 白板區 | 「白板」分頁 + 早修／升旗／午休分段控制 + 星期條；升旗再依定點／巡查分組 |
 | Plan B 預備隊 | 「備援」分頁頂部卡片 |
 | 人力供需與升級徒弟 | 「統計」分頁 |
+| 新增／刪除點位與成員 | 頂部列齒輪 → 「設定」面板 |
 
 白板矩陣在手機上不做表格：以**星期條選日 → 分段控制選時段 → 點位逐列**呈現，
 一次只看一個時段的一天。點位用列不用卡——升旗有 19 個點位，攤成 19 張卡要滑很久，
@@ -160,6 +161,23 @@ test/              node:test 測試（week / scheduler / planX / api）
 
 設計基準：米白底 `#FBFBFC`、Noto Sans TC 內文、Space Mono 數字（等寬對齊）、
 寶石色編碼（翡翠＝早修、黃玉＝升旗、紫水晶＝午休、藍寶石＝黑板、紅寶石＝缺額、石墨＝預備隊）。所有觸控目標 ≥44×44px，文字對比皆達 WCAG AA，支援 `prefers-reduced-motion` 與深色模式。
+
+---
+
+## 設定後台
+
+頂部列的齒輪打開「設定」面板，兩個分頁：
+
+* **點位**：依時段分組（白板早修／升旗／午休、黑板全週／每日）。
+  每列可就地改名、用加減鈕調人數、刪除。上方表單新增點位——
+  升旗會多出「定點／巡查」分區選擇。
+* **成員**：依身分分組（師傅／徒弟）。每列可改名、升降身分、刪除。
+
+改完關掉面板，按底部中央的閃電鈕重新排班即可。刪除採就地確認，
+不另開對話框——巢狀 bottom sheet 在手機上容易誤觸。
+
+刪除的連帶影響會直接寫在提示裡：刪點位會說移除了幾個班表名額，
+刪成員會說有幾個名額變成空缺。
 
 ---
 
@@ -177,8 +195,13 @@ test/              node:test 測試（week / scheduler / planX / api）
 | GET | `/api/assignments/:detailId/plan-x` | Plan X 補位推薦名單 |
 | GET/POST | `/api/absences` | 查詢／登錄公差 |
 | DELETE | `/api/absences/:id?week=` | 刪除公差紀錄 |
+| GET | `/api/items` | 點位與任務清單 |
+| POST | `/api/items` | 新增點位 |
+| PATCH | `/api/items/:id` | 改名、調人數、改分區、調順序 |
+| DELETE | `/api/items/:id` | 刪除點位（連帶移除班表上的名額） |
 | GET/POST | `/api/staff` | 人員清單／新增 |
-| PATCH | `/api/staff/:id` | 升級／降級（`role`）、啟用／停用（`is_active`） |
+| PATCH | `/api/staff/:id` | 改名、升級／降級（`role`）、啟用／停用（`is_active`） |
+| DELETE | `/api/staff/:id` | 刪除人員（班表名額變成空缺） |
 
 ---
 
