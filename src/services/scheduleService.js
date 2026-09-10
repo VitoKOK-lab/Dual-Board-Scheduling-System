@@ -1,6 +1,6 @@
 /** 班表服務層：生成、覆寫、補位、發布結算。 */
 
-import { BOARD, SHIFT, SLOT_ROLE, WARNING, WEEK_DAYS } from '../domain/constants.js';
+import { BOARD, ROLE, SHIFT, STANDBY_MAX, WARNING, WEEK_DAYS } from '../domain/constants.js';
 import { generateWeeklyPlan } from '../domain/scheduler.js';
 import { CONFLICT_LABEL, buildBoardIndex, checkConflicts, recommendReplacements } from '../domain/planX.js';
 import { dateForDay, dayOfWeekFor, mondayOf } from '../domain/week.js';
@@ -179,7 +179,6 @@ export function overrideAssignment(db, detailId, staffId) {
         targetDay: row.day_of_week,
         index: buildBoardIndex(others, items),
         absentSet,
-        slotRole: row.slot_role,
       });
     }
   }
@@ -224,7 +223,7 @@ export function planXRecommendations(db, detailId, { limit = 8 } = {}) {
 
   const rows = repo.listScheduleItems(db, row.schedule_id).filter((r) => r.detail_id !== detailId);
   const candidates = recommendReplacements({
-    staff: repo.listStaff(db, { activeOnly: true }),
+    staff: repo.listStaff(db, { activeOnly: true, mastersOnly: true }),
     targetItem,
     targetDay: row.day_of_week,
     rows,
@@ -234,19 +233,44 @@ export function planXRecommendations(db, detailId, { limit = 8 } = {}) {
     weekStartDate: schedule.week_start_date,
     excludeStaffId: row.staff_id,
     limit,
-    slotRole: row.slot_role,
   });
 
   return {
     detail_id: detailId,
     item: targetItem,
     day_of_week: row.day_of_week,
-    slot_role: row.slot_role,
     current_staff_id: row.staff_id,
     candidates: candidates.map((c) => ({
       ...c,
       conflicts: c.conflicts.map((code) => ({ code, label: CONFLICT_LABEL[code] ?? code })),
     })),
+  };
+}
+
+/**
+ * 供需摘要：每人每個時段只能站一個點位，
+ * 因此單一時段的名額總數不能超過可排班的師傅數。
+ */
+function buildCapacitySummary(db, items) {
+  const masters = repo.countSchedulableMasters(db);
+  const demandOf = (shift) => items
+    .filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift)
+    .reduce((sum, i) => sum + i.required_capacity, 0);
+
+  const morning = demandOf(SHIFT.MORNING);
+  const noon = demandOf(SHIFT.NOON);
+  const peak = Math.max(morning, noon);
+  const headroom = masters - peak;
+
+  return {
+    masters,
+    morning_slots: morning,
+    noon_slots: noon,
+    peak_slots: peak,
+    // 尖峰時段之外還剩幾位師傅；這就是能留作 Plan Y 預備隊的上限
+    headroom,
+    standby_capacity: Math.max(0, Math.min(STANDBY_MAX, headroom)),
+    feasible: peak <= masters,
   };
 }
 
@@ -262,12 +286,11 @@ export function getWeekView(db, rawWeek) {
 
   const openSlots = rows.filter((r) => r.staff_id == null && !r.is_plan_b_standby);
   const warnings = openSlots.map((r) => ({
-    code: r.slot_role === SLOT_ROLE.LEADER ? WARNING.NO_LEADER : WARNING.UNDERSTAFFED,
+    code: WARNING.UNDERSTAFFED,
     detail_id: r.detail_id,
     item_id: r.item_id,
     item_name: itemMap.get(r.item_id)?.item_name ?? null,
     day_of_week: r.day_of_week,
-    slot_role: r.slot_role,
   }));
 
   return {
@@ -291,6 +314,7 @@ export function getWeekView(db, rawWeek) {
     absences: absencesForWeek(db, weekStartDate),
     fairness: repo.listFairness(db),
     published_weeks: repo.countPublishedWeeks(db),
+    capacity: buildCapacitySummary(db, items),
     warnings,
   };
 }

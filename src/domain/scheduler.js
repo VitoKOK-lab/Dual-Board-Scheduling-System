@@ -11,17 +11,15 @@
  *   D. 白板早修矩陣
  *   E. 白板午休矩陣（硬性限制：同人當日早修點位 ≠ 午休點位）
  *
- * 帶班制（校內既有的高二帶高一）：
- *   白板每個點位的第 1 個名額是「帶班位」，只有帶班組（高二）能站，
- *   排不出來就留空缺，絕不由被帶組頂替——這是硬性規定。
- *   其餘名額為「一般位」，以被帶組（高一）為主，人力不足時才放寬。
+ * 師徒制：只有「師傅」進入排班池。徒弟跟著自己的師傅學習，
+ * 不排班、不計入點位人數，由主管手動升級為師傅後才會被排到班。
  *
- * 因為兩種名額的候選池不重疊，公平性自然是分組各自累計。
+ * 容量上限：每人每個時段只能站一個點位，因此單一時段的名額總數
+ * 不能超過可排班的師傅數，超過的部分必然留空並回報 CAPACITY_EXCEEDED。
  */
 
 import {
-  BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT, SLOT_ROLE,
-  STANDBY_MAX, STANDBY_MIN, WARNING, WEEK_DAYS,
+  BOARD, ROLE, SHIFT, STANDBY_MAX, STANDBY_MIN, WARNING, WEEK_DAYS,
 } from './constants.js';
 import { DIMENSION, LoadTracker, buildTieRanks, comparatorFor, standbyComparator } from './fairness.js';
 import { dayOfWeekFor } from './week.js';
@@ -98,7 +96,8 @@ export function generateWeeklyPlan({
 }) {
   if (!weekStartDate) throw new Error('generateWeeklyPlan 需要 weekStartDate');
 
-  const pool = staff.filter((s) => s.is_active);
+  // 排班池只有師傅；徒弟不排班也不計入點位人數
+  const pool = staff.filter((s) => s.is_active && s.role === ROLE.MASTER);
   const statsMap = stats instanceof Map ? stats : new Map(Object.entries(stats).map(([k, v]) => [Number(k), v]));
 
   const state = new WeekState();
@@ -118,18 +117,32 @@ export function generateWeeklyPlan({
   // ---------------------------------------------------------------
   // A. Plan Y — 靜態預備隊（最先選，被選中者整週完全不排班）
   //    依「擔任預備隊次數」輪替待命權：待命最少者優先，
-  //    平手時讓累計負擔最重的人休息。只從被帶組挑選。
+  //    平手時讓累計負擔最重的人休息。
   // ---------------------------------------------------------------
-  const wanted = Math.min(Math.max(standbyCount, STANDBY_MIN), STANDBY_MAX);
+  // 預備隊不能挖走排班需要的人：先算出單一時段的尖峰名額數，
+  // 剩下的餘裕才是可以留作待命的人數。班表填不滿比沒有預備隊嚴重。
+  const peakDemand = Math.max(
+    ...[SHIFT.MORNING, SHIFT.NOON].map((shift) => selectItems(items, BOARD.WHITEBOARD, shift)
+      .reduce((sum, i) => sum + i.required_capacity, 0)),
+    0,
+  );
+  const headroom = Math.max(0, pool.length - peakDemand);
+  const wanted = Math.min(Math.max(standbyCount, STANDBY_MIN), STANDBY_MAX, headroom);
+
   const standbyPool = pool
-    .filter((s) => s.staff_group === MEMBER_GROUP)
     .filter((s) => !WEEK_DAYS.some((d) => state.isAbsent(s.staff_id, d)))
     .sort(standbyComparator(tracker, tieRanks));
   const standby = standbyPool.slice(0, wanted).map((s) => s.staff_id);
   const standbySet = new Set(standby);
 
   if (standby.length < STANDBY_MIN) {
-    warn(WARNING.STANDBY_SHORT, { available: standby.length, required: STANDBY_MIN });
+    warn(WARNING.STANDBY_SHORT, {
+      available: standby.length,
+      required: STANDBY_MIN,
+      masters: pool.length,
+      peak_slots: peakDemand,
+      reason: headroom < STANDBY_MIN ? '可排班師傅數扣掉尖峰名額後不足' : '可出勤人數不足',
+    });
   }
 
   // ---------------------------------------------------------------
@@ -206,10 +219,9 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // D / E. 白板矩陣：每點先排帶班位，再排一般位
+  // D / E. 白板矩陣 —— 早修、午休
   // ---------------------------------------------------------------
-  const leaderPool = pool.filter((s) => s.staff_group === LEADER_GROUP);
-  const memberPool = pool.filter((s) => s.staff_group === MEMBER_GROUP && !standbySet.has(s.staff_id));
+  const dutyPoolWhiteboard = pool.filter((s) => !standbySet.has(s.staff_id));
 
   const shifts = [
     { shift: SHIFT.MORNING, dimension: DIMENSION.MORNING, comparator: morningCmp, placedBy: state.morningByDay, otherBy: state.noonByDay },
@@ -217,54 +229,48 @@ export function generateWeeklyPlan({
   ];
 
   for (const { shift, dimension, comparator, placedBy, otherBy } of shifts) {
-    for (const item of selectItems(items, BOARD.WHITEBOARD, shift)) {
-      const leaderSlots = Math.min(item.leader_count ?? 0, item.required_capacity);
+    const shiftItems = selectItems(items, BOARD.WHITEBOARD, shift);
+    const demand = shiftItems.reduce((sum, i) => sum + i.required_capacity, 0);
 
+    // 每人每個時段只能站一個點位，供給上限就是可排班師傅數
+    if (demand > dutyPoolWhiteboard.length) {
+      warn(WARNING.CAPACITY_EXCEEDED, {
+        shift_type: shift,
+        required: demand,
+        available: dutyPoolWhiteboard.length,
+        shortfall: demand - dutyPoolWhiteboard.length,
+      });
+    }
+
+    for (const item of shiftItems) {
       for (const day of WEEK_DAYS) {
         const placed = placedBy.get(day);
         const other = otherBy.get(day);
 
-        // 同日不重複站點、同日早修點位 ≠ 午休點位
-        const available = (s) => !state.isAbsent(s.staff_id, day)
-          && !placed.has(s.staff_id)
-          && other.get(s.staff_id) !== item.item_name;
-
         for (let slot = 0; slot < item.required_capacity; slot += 1) {
-          const isLeaderSlot = slot < leaderSlots;
-          const role = isLeaderSlot ? SLOT_ROLE.LEADER : SLOT_ROLE.MEMBER;
-
-          // 帶班位：只從帶班組挑，永不放寬（排不出來就留空缺）
-          // 一般位：被帶組優先，人力不足時才放寬到帶班組並標記
-          let { staff: chosen } = pickCandidate(
-            isLeaderSlot ? leaderPool : memberPool, [available], comparator,
+          const { staff: chosen } = pickCandidate(
+            dutyPoolWhiteboard,
+            [
+              // 硬性：當日可出勤、當日尚未站同時段的點位、
+              //       且當日的早修點位 ≠ 午休點位
+              (s) => !state.isAbsent(s.staff_id, day)
+                && !placed.has(s.staff_id)
+                && other.get(s.staff_id) !== item.item_name,
+            ],
+            comparator,
           );
-          let relaxed = false;
-          if (!chosen && !isLeaderSlot) {
-            ({ staff: chosen } = pickCandidate(leaderPool, [available], comparator));
-            relaxed = Boolean(chosen);
-          }
 
           if (!chosen) {
-            warn(isLeaderSlot ? WARNING.NO_LEADER : WARNING.UNDERSTAFFED, {
-              item_id: item.item_id, item_name: item.item_name, day_of_week: day, slot_role: role,
+            warn(WARNING.UNDERSTAFFED, {
+              item_id: item.item_id, item_name: item.item_name, day_of_week: day,
             });
-            assignments.push({
-              item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot, slot_role: role,
-            });
+            assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
             continue;
-          }
-          if (relaxed) {
-            warn(WARNING.CONSTRAINT_RELAXED, {
-              item_id: item.item_id, item_name: item.item_name, day_of_week: day, staff_id: chosen.staff_id,
-              slot_role: role, reason: '一般位由帶班組頂替',
-            });
           }
 
           placed.set(chosen.staff_id, item.item_name);
           tracker.add(chosen.staff_id, dimension);
-          assignments.push({
-            item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot, slot_role: role,
-          });
+          assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
         }
       }
     }
@@ -281,7 +287,6 @@ export function generateWeeklyPlan({
     assignments: assignments.map((a) => ({
       is_plan_b_standby: 0,
       is_override: 0,
-      slot_role: SLOT_ROLE.MEMBER,
       ...a,
     })),
     standby,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateWeeklyPlan } from '../src/domain/scheduler.js';
-import { BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT, WARNING, WEEK_DAYS } from '../src/domain/constants.js';
+import { BOARD, ROLE, SHIFT, WARNING, WEEK_DAYS } from '../src/domain/constants.js';
 import { indexItems, makeItems, makeStaff } from './helpers.js';
 
 const WEEK = '2026-09-07';
@@ -189,68 +189,93 @@ test('缺少 weekStartDate 時直接拋錯', () => {
 });
 
 // ---------------------------------------------------------------
-// 帶班制（高二帶高一）：白板每點第 1 個名額是帶班位
+// 師徒制：只有師傅進入排班池
 // ---------------------------------------------------------------
 
-test('帶班位一律由帶班組擔任，一般位一律由被帶組擔任', () => {
-  const { plan, byId } = run({ staff: makeStaff(30) });
-  const groupOf = new Map(makeStaff(30).map((s) => [s.staff_id, s.staff_group]));
+test('徒弟完全不會被排班', () => {
+  const staff = makeStaff(30, { apprentices: 12 });
+  const { plan } = run({ staff });
+  const roleOf = new Map(staff.map((s) => [s.staff_id, s.role]));
 
+  assert.ok(placed(plan).length > 0);
   for (const a of placed(plan)) {
-    const item = byId.get(a.item_id);
-    if (item.board_type !== BOARD.WHITEBOARD) continue;
-    if (a.slot_role === 'LEADER') {
-      assert.equal(groupOf.get(a.staff_id), LEADER_GROUP, `帶班位被 ${groupOf.get(a.staff_id)} 佔用`);
-    } else {
-      assert.equal(groupOf.get(a.staff_id), MEMBER_GROUP, `一般位被 ${groupOf.get(a.staff_id)} 佔用`);
-    }
+    assert.equal(roleOf.get(a.staff_id), ROLE.MASTER, `徒弟 ${a.staff_id} 被排到班`);
+  }
+  for (const id of plan.standby) {
+    assert.equal(roleOf.get(id), ROLE.MASTER, '預備隊也只能是師傅');
   }
 });
 
-test('帶班組不足時，帶班位留空並回報 NO_LEADER，絕不由被帶組頂替', () => {
-  // 只有 1 位帶班組，但每天早修有 4 個點位各需 1 位帶班
-  const staff = makeStaff(30, { leaders: 1 });
-  const { plan, byId } = run({ staff });
-  const groupOf = new Map(staff.map((s) => [s.staff_id, s.staff_group]));
+test('把徒弟升級為師傅後，他才會進入排班池', () => {
+  const before = makeStaff(20, { apprentices: 8 });
+  const promoted = before.map((s) => ({ ...s, role: ROLE.MASTER }));
 
-  const leaderGaps = plan.assignments.filter((a) => a.slot_role === 'LEADER' && a.staff_id == null);
-  assert.ok(leaderGaps.length > 0, '帶班組不足時應留下空缺');
-  assert.ok(plan.warnings.some((w) => w.code === WARNING.NO_LEADER));
+  const planBefore = run({ staff: before }).plan;
+  const planAfter = run({ staff: promoted }).plan;
 
-  for (const a of placed(plan)) {
-    if (byId.get(a.item_id).board_type !== BOARD.WHITEBOARD) continue;
-    if (a.slot_role === 'LEADER') assert.equal(groupOf.get(a.staff_id), LEADER_GROUP);
-  }
+  const rookie = before.at(-1).staff_id;
+  assert.ok(!placed(planBefore).some((a) => a.staff_id === rookie));
+  assert.ok(placed(planAfter).some((a) => a.staff_id === rookie));
 });
 
-test('被帶組不足時，一般位才放寬給帶班組並標記', () => {
-  // 帶班組充裕、被帶組極少
-  const staff = makeStaff(12, { leaders: 10 });
-  const { plan, byId } = run({ staff });
-  const groupOf = new Map(staff.map((s) => [s.staff_id, s.staff_group]));
-
-  const relaxed = placed(plan).filter((a) => byId.get(a.item_id).board_type === BOARD.WHITEBOARD
-    && a.slot_role === 'MEMBER' && groupOf.get(a.staff_id) === LEADER_GROUP);
-  assert.ok(relaxed.length > 0, '被帶組不足時一般位應由帶班組頂替');
-  assert.ok(plan.warnings.some((w) => w.code === WARNING.CONSTRAINT_RELAXED));
+test('停用的師傅不會被排班', () => {
+  const staff = makeStaff(20);
+  staff[0].is_active = false;
+  const { plan } = run({ staff });
+  assert.ok(placed(plan).every((a) => a.staff_id !== 1));
+  assert.ok(!plan.standby.includes(1));
 });
 
-test('Plan Y 預備隊只從被帶組挑選，且整週完全不排班（含黑板）', () => {
-  const { plan } = run({ staff: makeStaff(30) });
-  const groupOf = new Map(makeStaff(30).map((s) => [s.staff_id, s.staff_group]));
+// ---------------------------------------------------------------
+// 容量上限：每人每個時段只能站一個點位
+// ---------------------------------------------------------------
+
+test('單一時段名額數超過師傅數時回報 CAPACITY_EXCEEDED 並留下空缺', () => {
+  // 6 位師傅，早修 4 點位 × 2 人 = 8 個名額
+  const { plan } = run({ staff: makeStaff(6), items: makeItems({ capacity: 2 }) });
+
+  const exceeded = plan.warnings.filter((w) => w.code === WARNING.CAPACITY_EXCEEDED);
+  assert.ok(exceeded.length > 0);
+  assert.equal(exceeded[0].required, 8);
+  assert.ok(exceeded[0].shortfall > 0);
+  assert.ok(plan.assignments.some((a) => a.staff_id == null && !a.is_plan_b_standby));
+});
+
+test('預備隊不會挖走排班需要的人：餘裕不足時自動減少人數', () => {
+  // 9 位師傅，尖峰 8 個名額 → 只剩 1 位可待命
+  const { plan } = run({ staff: makeStaff(9), items: makeItems({ capacity: 2 }) });
+
+  assert.ok(plan.standby.length <= 1, `餘裕只有 1 人，卻挑了 ${plan.standby.length} 位預備隊`);
+  assert.ok(plan.warnings.some((w) => w.code === WARNING.STANDBY_SHORT));
+
+  const gaps = plan.assignments.filter((a) => a.staff_id == null && !a.is_plan_b_standby);
+  assert.equal(gaps.length, 0, '寧可少留待命，也不該讓班表出現空缺');
+});
+
+test('餘裕充足時仍挑滿 2~3 位預備隊', () => {
+  const { plan } = run({ staff: makeStaff(20), items: makeItems({ capacity: 2 }) });
+  assert.ok(plan.standby.length >= 2 && plan.standby.length <= 3);
+
+  const gaps = plan.assignments.filter((a) => a.staff_id == null && !a.is_plan_b_standby);
+  assert.equal(gaps.length, 0);
+});
+
+// ---------------------------------------------------------------
+// Plan Y 待命權輪替
+// ---------------------------------------------------------------
+
+test('Plan Y 預備隊整週完全不排班（含黑板）', () => {
+  const { plan } = run({ staff: makeStaff(20) });
   const assigned = new Set(placed(plan).map((a) => a.staff_id));
-
   assert.ok(plan.standby.length >= 2);
   for (const id of plan.standby) {
-    assert.equal(groupOf.get(id), MEMBER_GROUP);
     assert.ok(!assigned.has(id), '預備隊不應出現在任何名額，包含黑板任務');
   }
 });
 
 test('待命權輪替：擔任過預備隊者，下次會讓給待命次數更少的人', () => {
-  const staff = makeStaff(30);
-  const members = staff.filter((s) => s.staff_group === MEMBER_GROUP);
-  const rested = members.slice(0, 3).map((s) => s.staff_id);
+  const staff = makeStaff(20);
+  const rested = [1, 2, 3];
 
   // 這 3 人已待命過 1 次，且累計工作量最低（若只看工作量會再度被選中）
   const stats = new Map(staff.map((s) => [s.staff_id, {
@@ -267,10 +292,8 @@ test('待命權輪替：擔任過預備隊者，下次會讓給待命次數更�
 });
 
 test('待命次數相同時，讓累計工作量最重的人休息', () => {
-  const staff = makeStaff(30);
-  const members = staff.filter((s) => s.staff_group === MEMBER_GROUP);
-  const busiest = members[members.length - 1].staff_id;
-
+  const staff = makeStaff(20);
+  const busiest = 20;
   const stats = new Map(staff.map((s) => [s.staff_id, {
     blackboard_count: 0,
     morning_whiteboard_count: s.staff_id === busiest ? 99 : 1,

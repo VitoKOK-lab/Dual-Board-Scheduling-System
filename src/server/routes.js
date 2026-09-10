@@ -99,12 +99,22 @@ export function buildRouter(db) {
     const name = String(body.name ?? '').trim();
     if (!name) throw bad('name 不可為空');
     const staffGroup = String(body.staff_group ?? '').trim();
-    return { staff_id: repo.createStaff(db, name, staffGroup), staff: repo.listStaff(db) };
+    const role = body.role ?? 'APPRENTICE';
+    if (!['MASTER', 'APPRENTICE'].includes(role)) throw bad('role 需為 MASTER 或 APPRENTICE');
+    return { staff_id: repo.createStaff(db, name, staffGroup, role), staff: repo.listStaff(db) };
   });
 
   router.patch('/api/staff/:id', ({ params, body }) => {
-    repo.setStaffActive(db, requireInt(params.id, 'staff_id'), Boolean(body.is_active));
-    return { staff: repo.listStaff(db) };
+    const staffId = requireInt(params.id, 'staff_id');
+
+    if (body.role !== undefined) {
+      if (!['MASTER', 'APPRENTICE'].includes(body.role)) throw bad('role 需為 MASTER 或 APPRENTICE');
+      repo.setStaffRole(db, staffId, body.role);
+    }
+    if (body.is_active !== undefined) {
+      repo.setStaffActive(db, staffId, Boolean(body.is_active));
+    }
+    return { staff: repo.listStaff(db), fairness: repo.listFairness(db), groups: repo.listGroups(db) };
   });
 
   return router;

@@ -10,12 +10,14 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS staff (
     staff_id    INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
-    staff_group TEXT    NOT NULL DEFAULT '',   -- 組別，如「高一組」「高二組」
+    staff_group TEXT    NOT NULL DEFAULT '',   -- 學級，如「高一組」「高二組」
+    role        TEXT    NOT NULL DEFAULT 'APPRENTICE' CHECK (role IN ('MASTER', 'APPRENTICE')),
     is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     sort_order  INTEGER NOT NULL DEFAULT 0     -- 名冊原始順序
 );
 
 CREATE INDEX IF NOT EXISTS idx_staff_group ON staff (staff_group);
+CREATE INDEX IF NOT EXISTS idx_staff_role  ON staff (role);
 
 -- 2. 點位與任務字典表
 CREATE TABLE IF NOT EXISTS location_tasks (
@@ -24,7 +26,6 @@ CREATE TABLE IF NOT EXISTS location_tasks (
     shift_type         TEXT    NOT NULL CHECK (shift_type IN ('MORNING', 'NOON', 'ALL_WEEK', 'DAILY')),
     item_name          TEXT    NOT NULL,
     required_capacity  INTEGER NOT NULL DEFAULT 1 CHECK (required_capacity >= 1),
-    leader_count       INTEGER NOT NULL DEFAULT 0,   -- 本點位必須由帶班組擔任的名額數
     sort_order         INTEGER NOT NULL DEFAULT 0,
     UNIQUE (board_type, shift_type, item_name)
 );
@@ -57,8 +58,7 @@ CREATE TABLE IF NOT EXISTS schedule_items (
     day_of_week        INTEGER CHECK (day_of_week BETWEEN 1 AND 5),  -- NULL = 全週職務 / 預備隊
     is_plan_b_standby  INTEGER NOT NULL DEFAULT 0 CHECK (is_plan_b_standby IN (0, 1)),
     is_override        INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
-    slot_index         INTEGER NOT NULL DEFAULT 0,       -- 同點位內第幾個名額，供前端穩定排序
-    slot_role          TEXT    NOT NULL DEFAULT 'MEMBER' CHECK (slot_role IN ('LEADER', 'MEMBER'))
+    slot_index         INTEGER NOT NULL DEFAULT 0        -- 同點位內第幾個名額，供前端穩定排序
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_items_schedule ON schedule_items (schedule_id);

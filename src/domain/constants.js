@@ -22,25 +22,27 @@ export const SHIFT = {
 };
 
 /**
- * 帶班制：白板每個點位至少要有一位「帶班組」成員（硬性），
- * 其餘名額由「被帶組」填補。這是校內既有的高二帶高一制度。
+ * 師徒制：只有「師傅」進入排班池。
+ * 徒弟跟著自己的師傅學習，不排班、不計入點位人數，
+ * 由主管手動升級為師傅後才會被排到班。
  */
-export const LEADER_GROUP = '高二組';
-export const MEMBER_GROUP = '高一組';
+export const ROLE = {
+  MASTER: 'MASTER',       // 師傅：可排班
+  APPRENTICE: 'APPRENTICE', // 徒弟：不排班
+};
+
+export const ROLE_LABEL = {
+  [ROLE.MASTER]: '師傅',
+  [ROLE.APPRENTICE]: '徒弟',
+};
 
 /** 規格 §2.3：Plan Y 預備隊人數區間。 */
 export const STANDBY_MIN = 2;
 export const STANDBY_MAX = 3;
 
 export const WARNING = {
-  UNDERSTAFFED: 'UNDERSTAFFED',             // 點位人數不足
-  NO_LEADER: 'NO_LEADER',                   // 帶班位沒有可用的帶班組人員（硬性，留空缺）
+  UNDERSTAFFED: 'UNDERSTAFFED',             // 點位人數不足，留下空缺
   CONSTRAINT_RELAXED: 'CONSTRAINT_RELAXED', // 為填滿點位而放寬軟性限制
   STANDBY_SHORT: 'STANDBY_SHORT',           // 預備隊人數不足 2 人
-};
-
-/** 名額性質：帶班位 vs 一般位。 */
-export const SLOT_ROLE = {
-  LEADER: 'LEADER',
-  MEMBER: 'MEMBER',
+  CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 單一時段名額總數超過可排班師傅數
 };

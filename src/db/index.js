@@ -44,10 +44,9 @@ function migrate(db) {
   const additions = [
     ['staff', 'staff_group', "TEXT NOT NULL DEFAULT ''"],
     ['staff', 'sort_order', 'INTEGER NOT NULL DEFAULT 0'],
-    ['location_tasks', 'leader_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['staff', 'role', "TEXT NOT NULL DEFAULT 'APPRENTICE'"],
     ['fairness_stats', 'standby_count', 'INTEGER NOT NULL DEFAULT 0'],
     ['fairness_ledger', 'standby_delta', 'INTEGER NOT NULL DEFAULT 0'],
-    ['schedule_items', 'slot_role', "TEXT NOT NULL DEFAULT 'MEMBER'"],
   ];
   for (const [table, column, definition] of additions) {
     const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);

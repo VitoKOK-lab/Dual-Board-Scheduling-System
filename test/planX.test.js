@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFLICT, buildBoardIndex, checkConflicts, recommendReplacements } from '../src/domain/planX.js';
-import { BOARD, LEADER_GROUP, MEMBER_GROUP, SHIFT } from '../src/domain/constants.js';
+import { BOARD, ROLE, SHIFT } from '../src/domain/constants.js';
 import { indexItems, makeItems, makeStaff } from './helpers.js';
 
 const WEEK = '2026-09-07';
@@ -28,7 +28,7 @@ test('偵測：同一天同一時段已有其他點位', () => {
   const { byId, morning } = fixture();
   const rows = [row({ detail_id: 1, staff_id: 7, item_id: morning[0].item_id, day_of_week: 2 })];
   const conflicts = checkConflicts({
-    candidate: { staff_id: 7, is_active: true },
+    candidate: { staff_id: 7, is_active: true, role: ROLE.MASTER },
     targetItem: morning[1],
     targetDay: 2,
     index: buildBoardIndex(rows, byId),
@@ -42,7 +42,7 @@ test('偵測：當日早修與午休點位重複', () => {
   const rows = [row({ detail_id: 1, staff_id: 4, item_id: morning[0].item_id, day_of_week: 3 })];
   const target = noon.find((i) => i.item_name === morning[0].item_name);
   const conflicts = checkConflicts({
-    candidate: { staff_id: 4, is_active: true },
+    candidate: { staff_id: 4, is_active: true, role: ROLE.MASTER },
     targetItem: target,
     targetDay: 3,
     index: buildBoardIndex(rows, byId),
@@ -56,7 +56,7 @@ test('不同點位的早修 / 午休組合不算衝突', () => {
   const rows = [row({ detail_id: 1, staff_id: 4, item_id: morning[0].item_id, day_of_week: 3 })];
   const target = noon.find((i) => i.item_name !== morning[0].item_name);
   const conflicts = checkConflicts({
-    candidate: { staff_id: 4, is_active: true },
+    candidate: { staff_id: 4, is_active: true, role: ROLE.MASTER },
     targetItem: target,
     targetDay: 3,
     index: buildBoardIndex(rows, byId),
@@ -69,7 +69,7 @@ test('偵測：當日有公差、以及人員已停用', () => {
   const { byId, morning } = fixture();
   const index = buildBoardIndex([], byId);
   assert.ok(checkConflicts({
-    candidate: { staff_id: 2, is_active: true },
+    candidate: { staff_id: 2, is_active: true, role: ROLE.MASTER },
     targetItem: morning[0],
     targetDay: 1,
     index,
@@ -77,7 +77,7 @@ test('偵測：當日有公差、以及人員已停用', () => {
   }).includes(CONFLICT.ABSENT));
 
   assert.ok(checkConflicts({
-    candidate: { staff_id: 2, is_active: false },
+    candidate: { staff_id: 2, is_active: false, role: ROLE.MASTER },
     targetItem: morning[0],
     targetDay: 1,
     index,
@@ -91,7 +91,7 @@ test('偵測：已擔任全週職務者不宜再接每日黑板任務', () => {
   const daily = items.find((i) => i.shift_type === SHIFT.DAILY);
   const rows = [row({ detail_id: 1, staff_id: 5, item_id: allWeek.item_id, day_of_week: null })];
   const conflicts = checkConflicts({
-    candidate: { staff_id: 5, is_active: true },
+    candidate: { staff_id: 5, is_active: true, role: ROLE.MASTER },
     targetItem: daily,
     targetDay: 2,
     index: buildBoardIndex(rows, byId),
@@ -196,53 +196,41 @@ test('Plan X：limit 會先保留無衝突者，衝突者被截斷', () => {
   assert.ok(result.every((c) => c.conflicts.length === 0));
 });
 
-test('帶班位的推薦名單只會出現帶班組', () => {
+test('徒弟不會出現在補位推薦名單', () => {
   const { byId, morning } = fixture();
-  const staff = makeStaff(12);
+  const staff = makeStaff(12, { apprentices: 5 });
   const result = recommendReplacements({
     staff, targetItem: morning[0], targetDay: 1, rows: [], itemsById: byId,
-    stats: new Map(), absences: [], weekStartDate: WEEK, slotRole: 'LEADER', limit: 20,
+    stats: new Map(), absences: [], weekStartDate: WEEK, limit: 20,
   });
-  assert.ok(result.length > 0);
+  assert.equal(result.length, 7, '只有 7 位師傅可補位');
   for (const c of result) {
-    assert.equal(c.staff_group, LEADER_GROUP, `${c.name} 不是帶班組卻出現在帶班位候選名單`);
+    assert.equal(c.role, ROLE.MASTER, `${c.name} 是徒弟卻出現在候選名單`);
   }
 });
 
-test('一般位的推薦名單兩組都可以出現', () => {
+test('把徒弟放進名額會回報 APPRENTICE 衝突', () => {
   const { byId, morning } = fixture();
-  const staff = makeStaff(12);
-  const result = recommendReplacements({
-    staff, targetItem: morning[0], targetDay: 1, rows: [], itemsById: byId,
-    stats: new Map(), absences: [], weekStartDate: WEEK, slotRole: 'MEMBER', limit: 20,
-  });
-  assert.equal(result.length, staff.length);
-});
-
-test('把被帶組放進帶班位會回報 NOT_LEADER', () => {
-  const { byId, morning } = fixture();
-  const junior = makeStaff(12).find((s) => s.staff_group === MEMBER_GROUP);
+  const apprentice = makeStaff(12, { apprentices: 5 }).at(-1);
   const conflicts = checkConflicts({
-    candidate: junior,
+    candidate: apprentice,
     targetItem: morning[0],
     targetDay: 1,
     index: buildBoardIndex([], byId),
     absentSet: new Set(),
-    slotRole: 'LEADER',
   });
-  assert.ok(conflicts.includes(CONFLICT.NOT_LEADER));
+  assert.ok(conflicts.includes(CONFLICT.APPRENTICE));
 });
 
-test('帶班組放進一般位不算組別衝突', () => {
+test('師傅放進名額不算角色衝突', () => {
   const { byId, morning } = fixture();
-  const senior = makeStaff(12).find((s) => s.staff_group === LEADER_GROUP);
+  const master = makeStaff(12, { apprentices: 5 })[0];
   const conflicts = checkConflicts({
-    candidate: senior,
+    candidate: master,
     targetItem: morning[0],
     targetDay: 1,
     index: buildBoardIndex([], byId),
     absentSet: new Set(),
-    slotRole: 'MEMBER',
   });
-  assert.ok(!conflicts.includes(CONFLICT.NOT_LEADER));
+  assert.deepEqual(conflicts, []);
 });
