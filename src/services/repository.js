@@ -1,14 +1,26 @@
 /** 資料存取層：把 SQL 集中在此，服務層只處理商業邏輯。 */
 
+const STAFF_ORDER = 'ORDER BY sort_order, staff_id';
+
 export function listStaff(db, { activeOnly = false } = {}) {
-  const sql = activeOnly
-    ? 'SELECT staff_id, name, is_active FROM staff WHERE is_active = 1 ORDER BY staff_id'
-    : 'SELECT staff_id, name, is_active FROM staff ORDER BY staff_id';
-  return db.prepare(sql).all().map((r) => ({ ...r, is_active: !!r.is_active }));
+  const where = activeOnly ? 'WHERE is_active = 1' : '';
+  return db.prepare(`SELECT staff_id, name, staff_group, is_active FROM staff ${where} ${STAFF_ORDER}`)
+    .all().map((r) => ({ ...r, is_active: !!r.is_active }));
 }
 
-export function createStaff(db, name) {
-  const info = db.prepare('INSERT INTO staff (name) VALUES (?)').run(name);
+/** 名冊中出現過的組別，依名冊順序。 */
+export function listGroups(db) {
+  return db.prepare(
+    `SELECT staff_group AS name, COUNT(*) AS total,
+            SUM(is_active) AS active_total, MIN(sort_order) AS ord
+       FROM staff WHERE staff_group <> '' GROUP BY staff_group ORDER BY ord`,
+  ).all().map(({ name, total, active_total: activeTotal }) => ({ name, total, active_total: activeTotal }));
+}
+
+export function createStaff(db, name, staffGroup = '') {
+  const nextOrder = db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM staff').get().n;
+  const info = db.prepare('INSERT INTO staff (name, staff_group, sort_order) VALUES (?, ?, ?)')
+    .run(name, staffGroup, nextOrder);
   const staffId = Number(info.lastInsertRowid);
   db.prepare('INSERT INTO fairness_stats (staff_id) VALUES (?)').run(staffId);
   return staffId;
@@ -31,12 +43,12 @@ export function itemsById(db) {
 
 export function listFairness(db) {
   return db.prepare(
-    `SELECT s.staff_id, s.name, s.is_active,
+    `SELECT s.staff_id, s.name, s.staff_group, s.is_active,
             COALESCE(f.blackboard_count, 0)         AS blackboard_count,
             COALESCE(f.morning_whiteboard_count, 0) AS morning_whiteboard_count,
             COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count
        FROM staff s LEFT JOIN fairness_stats f ON f.staff_id = s.staff_id
-      ORDER BY s.staff_id`,
+      ORDER BY s.sort_order, s.staff_id`,
   ).all().map((r) => ({ ...r, is_active: !!r.is_active }));
 }
 
@@ -105,7 +117,7 @@ export function updateScheduleItemStaff(db, detailId, staffId, { isOverride = tr
 
 export function listAbsences(db, fromDate, toDate) {
   return db.prepare(
-    `SELECT a.absence_id, a.staff_id, s.name, a.absence_date, a.absence_type, a.note
+    `SELECT a.absence_id, a.staff_id, s.name, s.staff_group, a.absence_date, a.absence_type, a.note
        FROM staff_absences a JOIN staff s ON s.staff_id = a.staff_id
       WHERE a.absence_date BETWEEN ? AND ?
       ORDER BY a.absence_date, a.staff_id`,

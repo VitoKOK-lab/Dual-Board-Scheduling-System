@@ -265,6 +265,7 @@ export function getWeekView(db, rawWeek) {
       has_items: rows.length > 0,
     },
     staff: repo.listStaff(db),
+    groups: repo.listGroups(db),
     items,
     assignments: rows.filter((r) => !r.is_plan_b_standby),
     standby: rows.filter((r) => r.is_plan_b_standby)

@@ -8,10 +8,14 @@ PRAGMA foreign_keys = ON;
 
 -- 1. 人員表
 CREATE TABLE IF NOT EXISTS staff (
-    staff_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL,
-    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+    staff_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    staff_group TEXT    NOT NULL DEFAULT '',   -- 組別，如「高一組」「高二組」
+    is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    sort_order  INTEGER NOT NULL DEFAULT 0     -- 名冊原始順序
 );
+
+CREATE INDEX IF NOT EXISTS idx_staff_group ON staff (staff_group);
 
 -- 2. 點位與任務字典表
 CREATE TABLE IF NOT EXISTS location_tasks (

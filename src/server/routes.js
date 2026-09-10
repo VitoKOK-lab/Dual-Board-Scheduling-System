@@ -89,12 +89,17 @@ export function buildRouter(db) {
   });
 
   // ---- 人員 ----
-  router.get('/api/staff', () => ({ staff: repo.listStaff(db), fairness: repo.listFairness(db) }));
+  router.get('/api/staff', () => ({
+    staff: repo.listStaff(db),
+    groups: repo.listGroups(db),
+    fairness: repo.listFairness(db),
+  }));
 
   router.post('/api/staff', ({ body }) => {
     const name = String(body.name ?? '').trim();
     if (!name) throw bad('name 不可為空');
-    return { staff_id: repo.createStaff(db, name), staff: repo.listStaff(db) };
+    const staffGroup = String(body.staff_group ?? '').trim();
+    return { staff_id: repo.createStaff(db, name, staffGroup), staff: repo.listStaff(db) };
   });
 
   router.patch('/api/staff/:id', ({ params, body }) => {

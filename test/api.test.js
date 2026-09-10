@@ -36,7 +36,8 @@ test('GET /api/week 對尚未排班的週回傳空班表骨架', async () => {
     assert.equal(body.schedule.status, 'DRAFT');
     assert.equal(body.schedule.has_items, false);
     assert.equal(body.assignments.length, 0);
-    assert.equal(body.staff.length, 36);
+    assert.equal(body.staff.length, 69);
+    assert.deepEqual(body.groups.map((g) => [g.name, g.total]), [['高一組', 47], ['高二組', 22]]);
   });
 });
 
@@ -50,6 +51,10 @@ test('GET /api/week 會把週中任一天收斂到該週週一', async () => {
 test('一鍵排班會填滿所有名額並產生 Plan Y 預備隊', async () => {
   await withServer(async ({ call }) => {
     const { body } = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const load = new Map();
+    for (const a of body.assignments) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
+    assert.equal(load.size, 69, '69 人應全部排到班');
+    assert.ok(Math.max(...load.values()) - Math.min(...load.values()) <= 1, '每人每週次數差距不應超過 1');
     assert.equal(body.schedule.has_items, true);
     assert.ok(body.assignments.length > 200);
     assert.ok(body.standby.length >= 2 && body.standby.length <= 3);
@@ -209,13 +214,15 @@ test('輸入驗證：錯誤參數回傳 400，未知路徑回傳 404', async () 
   });
 });
 
-test('新增人員會同步建立公平性統計列', async () => {
+test('新增人員會同步建立公平性統計列並保留組別', async () => {
   await withServer(async ({ call }) => {
-    const res = await call('/api/staff', { method: 'POST', body: { name: '新進同仁' } });
+    const res = await call('/api/staff', { method: 'POST', body: { name: '新進同仁', staff_group: '高二組' } });
     const list = await call('/api/staff');
     const row = list.body.fairness.find((f) => f.staff_id === res.body.staff_id);
     assert.equal(row.name, '新進同仁');
+    assert.equal(row.staff_group, '高二組');
     assert.equal(row.blackboard_count, 0);
+    assert.equal(list.body.staff.at(-1).staff_id, res.body.staff_id, '新人應排在名冊最後');
   });
 });
 
