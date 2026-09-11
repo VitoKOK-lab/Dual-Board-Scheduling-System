@@ -7,23 +7,21 @@ const RING_R = 32;
 const RING_C = 2 * Math.PI * RING_R;
 const DAY_NAMES = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五' };
 const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];
-const SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休' };
-const SHIFT_COLOR = { MORNING: 'var(--emerald)', FLAG: 'var(--topaz)', NOON: 'var(--amethyst)' };
+const SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休', SPECIAL: '公差' };
 /** 公平性維度 → 欄位、標籤、顏色、長條樣式 */
 const DIMENSIONS = [
   { key: 'blackboard_count', label: '黑板', color: 'var(--sapphire)', bar: 'bar--bb' },
   { key: 'morning_whiteboard_count', label: '早修', color: 'var(--emerald)', bar: 'bar--am' },
   { key: 'flag_whiteboard_count', label: '升旗', color: 'var(--topaz)', bar: 'bar--fl' },
   { key: 'noon_whiteboard_count', label: '午休', color: 'var(--amethyst)', bar: 'bar--pm' },
+  { key: 'special_count', label: '公差', color: 'var(--ruby)', bar: 'bar--sp' },
 ];
 const DRAG_THRESHOLD = 8;
-const LONG_PRESS_MS = 180;
 
 const state = {
   week: null,
   data: null,
   tab: 'blackboard',
-  day: 1,
   shift: 'MORNING',
   itemsById: new Map(),
   staffById: new Map(),
@@ -112,14 +110,21 @@ const slotsOf = (itemId, day) => state.data.assignments
 
 const staffName = (id) => state.staffById.get(id)?.name ?? '未指派';
 
-const absencesOn = (day) => state.data.absences.filter((a) => a.day_of_week === day);
+const itemOf = (row) => state.itemsById.get(row.item_id) ?? null;
 
-const isAbsent = (staffId, day) => state.data.absences
-  .some((a) => a.staff_id === staffId && a.day_of_week === day);
+/** 本週所有公差指派，依任務、日期排序。 */
+const specialRows = () => state.data.assignments
+  .filter((r) => itemOf(r)?.board_type === 'SPECIAL')
+  .sort((a, b) => a.item_id - b.item_id
+    || (a.day_of_week ?? 9) - (b.day_of_week ?? 9)
+    || a.detail_id - b.detail_id);
+
+/** 某人本週的公差次數，指派時用來看誰輪得少。 */
+const specialCountOf = (staffId) => specialRows().filter((r) => r.staff_id === staffId).length;
 
 /* ---------- 名牌 chip ---------- */
 
-function tagEl(row, boardKind, day) {
+function tagEl(row, boardKind) {
   const node = el('button', 'tag');
   node.type = 'button';
   node.dataset.detailId = String(row.detail_id);
@@ -135,37 +140,11 @@ function tagEl(row, boardKind, day) {
   const name = staffName(row.staff_id);
   node.append(el('span', null, name));
   if (row.is_override) node.classList.add('tag--override');
-  if (day && isAbsent(row.staff_id, day)) {
-    node.classList.add('tag--absent');
-    node.title = '該員當日有公差／請假';
-  }
   const group = state.staffById.get(row.staff_id)?.staff_group;
   node.setAttribute('aria-label', `${name}${group ? `（${group}）` : ''}，點選以換人`);
   return node;
 }
 
-/* ---------- 星期條 ---------- */
-
-function renderDayStrip() {
-  const strip = $('#dayStrip');
-  strip.replaceChildren();
-  const today = todayIso();
-
-  for (const day of [1, 2, 3, 4, 5]) {
-    const date = state.data.schedule.dates[day];
-    const chip = el('button', 'daychip');
-    chip.type = 'button';
-    chip.setAttribute('aria-pressed', String(day === state.day));
-    if (date === today) chip.dataset.today = '1';
-    chip.append(el('span', 'daychip__d', `週${DAY_NAMES[day]}`));
-    chip.append(el('span', 'daychip__n mono', shortDate(date)));
-    chip.setAttribute('aria-label', `週${DAY_NAMES[day]} ${date}`);
-    chip.addEventListener('click', () => { state.day = day; render(); });
-    strip.append(chip);
-  }
-  // 只有白板需要選日；黑板已是整週表格，公差與統計跟單日無關
-  strip.hidden = state.tab !== 'whiteboard';
-}
 
 
 /* ---------- 表格 ---------- */
@@ -185,12 +164,62 @@ function captionRow(title, meta) {
 }
 
 /** 一格名牌；沒有名額時顯示灰底破折號。 */
-function slotCell(slots, index, boardKind, day) {
+function slotCell(slots, index, boardKind) {
   const cell = el('td');
   const slot = slots[index];
   if (!slot) { cell.append(el('span', 'cell-text', '—')); return cell; }
-  cell.append(tagEl(slot, boardKind, day));
+  cell.append(tagEl(slot, boardKind));
   return cell;
+}
+
+/** 一格放同一點位的所有名牌（點位設定成多人時才會超過一個）。 */
+function tagsCell(slots, boardKind) {
+  const cell = el('td');
+  if (slots.length === 0) { cell.append(el('span', 'cell-text', '—')); return cell; }
+  const stack = el('div', 'cell-tags');
+  for (const slot of slots) stack.append(tagEl(slot, boardKind));
+  cell.append(stack);
+  return cell;
+}
+
+/**
+ * 白板點位表：點位｜人員｜點位｜人員。
+ * 左半欄放前半段點位，右半欄接著放後半段，照實體白板的兩欄寫法。
+ */
+function pairTable(items, day, boardKind) {
+  const { wrap, table: node } = table('sched--pair4');
+
+  const thead = el('thead');
+  const headRow = el('tr');
+  for (const label of ['點位', '人員', '點位', '人員']) {
+    const th = el('th', null, label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  node.append(thead);
+
+  const half = Math.ceil(items.length / 2);
+  const tbody = el('tbody');
+
+  for (let i = 0; i < half; i += 1) {
+    const row = el('tr');
+    for (const item of [items[i], items[i + half]]) {
+      if (!item) {
+        const blank = el('th');
+        blank.scope = 'row';
+        row.append(blank, el('td'));
+        continue;
+      }
+      const label = el('th', null, item.item_name);
+      label.scope = 'row';
+      row.append(label, tagsCell(slotsOf(item.item_id, day), boardKind));
+    }
+    tbody.append(row);
+  }
+
+  node.append(tbody);
+  return wrap;
 }
 
 /* ---------- 視圖：黑板 ---------- */
@@ -233,7 +262,7 @@ function renderBlackboard() {
       label.scope = 'row';
       row.append(label);
       for (const day of [1, 2, 3, 4, 5]) {
-        row.append(slotCell(slotsOf(item.item_id, day), 0, 'BLACKBOARD', day));
+        row.append(slotCell(slotsOf(item.item_id, day), 0, 'BLACKBOARD'));
       }
       tbody.append(row);
     }
@@ -252,17 +281,13 @@ function renderBlackboard() {
       const row = el('tr');
       const label = el('th', null, item.item_name);
       label.scope = 'row';
-      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD', null));
+      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD'));
       tbody.append(row);
     }
     node.append(tbody);
     view.append(wrap);
   }
 
-  const away = state.data.absences;
-  if (away.length) {
-    view.append(noticeEl(`本週公差／請假：${away.map((a) => `${a.name}（週${DAY_NAMES[a.day_of_week] ?? '—'}）`).join('、')}`, 'topaz'));
-  }
 }
 
 /* ---------- 視圖：白板 ---------- */
@@ -287,78 +312,100 @@ function renderWhiteboard() {
   }
   view.append(seg);
 
+  if (state.shift === 'FLAG') { renderFlagBoard(view); return; }
+
+  // 早修與午休是依週指派：一個點位整週同一人，一週洗牌一次
   const items = itemsOf('WHITEBOARD', state.shift);
-  const daySlots = items.flatMap((i) => slotsOf(i.item_id, state.day));
-  const filled = daySlots.filter((s) => s.staff_id != null).length;
+  const slots = items.flatMap((i) => slotsOf(i.item_id, null));
+  const filled = slots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
-  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 週${DAY_NAMES[state.day]}`, `${filled}/${total} 名額`));
+  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 整週`, `${filled}/${total} 名額 · 一週一輪`));
+  view.append(pairTable(items, null, state.shift));
+  view.append(el('p', 'field__hint', '這個時段整週固定同一人，週一到週五都一樣；要換人點名牌即可。'));
+}
 
-  const { wrap, table: node } = table();
-  const thead = el('thead');
-  const headRow = el('tr');
-  for (const label of ['點位', '人員']) {
-    const th = el('th', null, label);
-    th.scope = 'col';
-    headRow.append(th);
+/** 升旗是事件，不是常態班：只有指定的升旗日才會把名牌排上去。 */
+function renderFlagBoard(view) {
+  const days = state.data.schedule.flag_days ?? [];
+
+  const card = el('div', 'card');
+  const head = el('div', 'card__title');
+  head.append(el('h3', null, '本週升旗日'));
+  head.append(badge(days.length ? `${days.length} 天` : '本週不升旗', days.length ? 'topaz' : 'emerald'));
+  card.append(head);
+  card.append(el('p', 'field__hint', '升旗一個月約三次。指定哪幾天升旗，重新排班後所有師傅的名牌才會排到升旗表上；沒指定就整塊空著。'));
+
+  const picker = el('div', 'daypick');
+  for (const day of [1, 2, 3, 4, 5]) {
+    const on = days.includes(day);
+    const chip = el('button', 'daypick__chip');
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(on));
+    chip.append(el('span', 'daypick__d', `週${DAY_NAMES[day]}`));
+    chip.append(el('span', 'daypick__n mono', shortDate(state.data.schedule.dates[day])));
+    chip.addEventListener('click', async () => {
+      const next = on ? days.filter((d) => d !== day) : [...days, day].sort();
+      absorb(await api('/api/week/flag-days', { method: 'POST', body: { week: state.week, days: next } }));
+      toast(state.data.schedule.has_items
+        ? '升旗日已更新，按閃電鈕重新排班才會排上名牌'
+        : '升旗日已設定');
+    });
+    picker.append(chip);
   }
-  thead.append(headRow);
-  node.append(thead);
+  card.append(picker);
+  view.append(card);
 
-  const tbody = el('tbody');
-  let currentZone = null;
-
-  for (const item of items) {
-    // 升旗底下分定點與巡查，用整列標題隔開
-    const zone = item.zone || '';
-    if (zone && zone !== currentZone) {
-      const zoneRow = el('tr', 'zone-row');
-      const th = el('th', null, zone);
-      th.colSpan = 2;
-      th.scope = 'colgroup';
-      zoneRow.append(th);
-      tbody.append(zoneRow);
-      currentZone = zone;
-    }
-
-    const slots = slotsOf(item.item_id, state.day);
-    // 一個點位排多人時，每人各佔一列，點位名用 rowspan 合併
-    for (let i = 0; i < Math.max(1, slots.length); i += 1) {
-      const row = el('tr');
-      if (i === 0) {
-        const label = el('th', null, item.item_name);
-        label.scope = 'row';
-        if (slots.length > 1) label.rowSpan = slots.length;
-        row.append(label);
-      }
-      row.append(slotCell(slots, i, state.shift, state.day));
-      tbody.append(row);
-    }
+  if (days.length === 0) {
+    view.append(noticeEl('本週沒有升旗，升旗表是空的。', 'topaz'));
+    return;
   }
 
-  node.append(tbody);
-  view.append(wrap);
+  const items = itemsOf('WHITEBOARD', 'FLAG');
+  const placed = days.some((d) => items.some((i) => slotsOf(i.item_id, d).length > 0));
+  if (!placed) {
+    view.append(noticeEl('已指定升旗日，但還沒把名牌排上去。按下方閃電鈕重新排班。', 'topaz'));
+  }
+
+  for (const day of days) {
+    view.append(captionRow(`升旗 · 週${DAY_NAMES[day]}`, shortDate(state.data.schedule.dates[day])));
+
+    // 定點與巡查各成一張表，跟實體白板一樣分區
+    const zones = new Map();
+    for (const item of items) {
+      const zone = item.zone || '定點';
+      if (!zones.has(zone)) zones.set(zone, []);
+      zones.get(zone).push(item);
+    }
+
+    for (const [zone, zoneItems] of zones) {
+      const zoneHead = el('p', 'zone-title', zone);
+      view.append(zoneHead, pairTable(zoneItems, day, 'FLAG'));
+    }
+  }
 }
 
 /* ---------- 視圖：公差 ---------- */
 
-function renderAbsence() {
-  const view = $('#view-absence');
+function renderSpecial() {
+  const view = $('#view-special');
   view.replaceChildren();
   view.classList.add('stagger');
 
-  // 公差／請假
-  view.append(captionRow('公差／請假', `${state.data.absences.length} 筆`));
+  const tasks = itemsOf('SPECIAL', 'SPECIAL');
+  const rows = specialRows();
 
-  if (state.data.absences.length === 0) {
+  view.append(captionRow('公差任務', `${tasks.length} 項 · 已指派 ${rows.length} 人次`));
+
+  if (tasks.length === 0) {
     const empty = el('div', 'card');
-    empty.append(el('p', 'field__hint', '本週尚無登錄紀錄。公差僅作行程提示，不計入公平性統計；排班時會自動避開登錄者當天。'));
+    empty.append(el('p', 'field__hint', '還沒有任何公差任務。到右上角設定裡的「點位」分頁，在「公差任務」底下建立隊裡的特殊任務。'));
     view.append(empty);
   } else {
-    const { wrap, table: node } = table();
+    const { wrap, table: node } = table('sched--special');
     const thead = el('thead');
     const headRow = el('tr');
-    for (const label of ['人員', '日期', '類型', '']) {
+    for (const label of ['任務', '人員', '時間', '']) {
       const th = el('th', null, label);
       th.scope = 'col';
       headRow.append(th);
@@ -367,41 +414,74 @@ function renderAbsence() {
     node.append(thead);
 
     const tbody = el('tbody');
-    for (const a of state.data.absences) {
-      const row = el('tr');
+    for (const task of tasks) {
+      const mine = rows.filter((r) => r.item_id === task.item_id);
 
-      const who = el('th', null, '');
-      who.scope = 'row';
-      who.append(document.createTextNode(a.name));
-      if (a.note) who.append(el('span', 'cell-sub', a.note));
-      row.append(who);
+      if (mine.length === 0) {
+        const row = el('tr');
+        const label = el('th', null, task.item_name);
+        label.scope = 'row';
+        row.append(label);
+        row.append(el('td', 'cell-text', '—'));
+        row.append(el('td', 'cell-text', '—'));
 
-      row.append(el('td', 'cell-text', `${shortDate(a.absence_date)}（${DAY_NAMES[a.day_of_week] ?? '—'}）`));
-      row.append(el('td', 'cell-text', a.absence_type === 'OFFICIAL' ? '公差' : '請假'));
+        const action = el('td', 'cell-action');
+        const add = el('button', 'iconbtn');
+        add.type = 'button';
+        add.setAttribute('aria-label', `指派「${task.item_name}」`);
+        add.append(icon('i-plus'));
+        add.addEventListener('click', () => openSpecialSheet(task.item_id));
+        action.append(add);
+        row.append(action);
 
-      const action = el('td', 'cell-action');
-      const del = el('button', 'iconbtn');
-      del.type = 'button';
-      del.setAttribute('aria-label', `刪除 ${a.name} 的紀錄`);
-      del.append(icon('i-trash'));
-      del.addEventListener('click', async () => {
-        absorb(await api(`/api/absences/${a.absence_id}?week=${state.week}`, { method: 'DELETE' }));
-        toast('已刪除紀錄');
+        tbody.append(row);
+        continue;
+      }
+
+      mine.forEach((assignment, index) => {
+        const row = el('tr');
+        if (index === 0) {
+          const label = el('th', null, task.item_name);
+          label.scope = 'row';
+          if (mine.length > 1) label.rowSpan = mine.length;
+          row.append(label);
+        }
+
+        const who = el('td');
+        who.append(tagEl(assignment, 'SPECIAL'));
+        if (assignment.note) who.append(el('span', 'cell-sub', assignment.note));
+        row.append(who);
+
+        row.append(el('td', 'cell-text', assignment.day_of_week
+          ? `週${DAY_NAMES[assignment.day_of_week]}`
+          : '整週'));
+
+        const action = el('td', 'cell-action');
+        const del = el('button', 'iconbtn');
+        del.type = 'button';
+        del.setAttribute('aria-label', `移除「${task.item_name}」的指派`);
+        del.append(icon('i-trash'));
+        del.addEventListener('click', async () => {
+          absorb(await api(`/api/specials/${assignment.detail_id}`, { method: 'DELETE' }));
+          toast('已移除公差指派');
+        });
+        action.append(del);
+        row.append(action);
+
+        tbody.append(row);
       });
-      action.append(del);
-      row.append(action);
-
-      tbody.append(row);
     }
     node.append(tbody);
     view.append(wrap);
-  }
 
-  const addBtn = el('button', 'btn btn--block btn--primary');
-  addBtn.type = 'button';
-  addBtn.append(icon('i-calendar'), el('span', null, '登錄公差／請假'));
-  addBtn.addEventListener('click', openAbsenceSheet);
-  view.append(addBtn);
+    const addBtn = el('button', 'btn btn--block btn--primary');
+    addBtn.type = 'button';
+    addBtn.append(icon('i-plus'), el('span', null, '指派公差'));
+    addBtn.addEventListener('click', () => openSpecialSheet(null));
+    view.append(addBtn);
+
+    view.append(el('p', 'field__hint', '公差是隊裡的特殊任務，由主管手動指派，會計入統計裡的公差次數。重新排班不會動到已指派的公差。'));
+  }
 
   // 待補名額
   const gaps = state.data.warnings;
@@ -434,7 +514,7 @@ function renderAbsence() {
     const label = el('th', null, g.item_name ?? '未知點位');
     label.scope = 'row';
     row.append(label);
-    row.append(el('td', 'cell-text', `${shiftName}・${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'}`));
+    row.append(el('td', 'cell-text', `${shiftName}・${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '整週'}`));
 
     const action = el('td', 'cell-action');
     const fill = el('button', 'iconbtn');
@@ -603,7 +683,7 @@ function rosterSection(title, rows, withLoad) {
     const nameWrap = el('div', 'person__name');
     nameWrap.append(document.createTextNode(r.name));
     if (withLoad) {
-      const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label} ${r[d.key]}`).join('・')}`;
+      const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label}${r[d.key]}`).join(' ')}`;
       nameWrap.append(el('span', null, sub));
     } else {
       nameWrap.append(el('span', null, `${r.staff_group}・點選可升級為師傅`));
@@ -771,47 +851,59 @@ async function assign(detailId, staffId) {
   }
 }
 
-/* ---------- 公差登錄 ---------- */
+/* ---------- 公差指派 ---------- */
 
-function openAbsenceSheet() {
-  openSheet('登錄公差／請假', '只列出師傅；登錄後重新排班會自動避開當天', (body) => {
+function openSpecialSheet(presetItemId) {
+  const tasks = itemsOf('SPECIAL', 'SPECIAL');
+  if (tasks.length === 0) {
+    toast('請先到設定裡新增公差任務', 'error');
+    return;
+  }
+
+  openSheet('指派公差', '公差計入統計，重新排班不會被覆蓋', (body) => {
+    const taskField = el('div', 'field');
+    const taskLabel = el('label', null, '任務');
+    taskLabel.setAttribute('for', 'spItem');
+    const taskSelect = el('select');
+    taskSelect.id = 'spItem';
+    for (const task of tasks) taskSelect.append(new Option(task.item_name, String(task.item_id)));
+    if (presetItemId != null) taskSelect.value = String(presetItemId);
+    taskField.append(taskLabel, taskSelect);
+
     const staffField = el('div', 'field');
     const staffLabel = el('label', null, '人員');
-    staffLabel.setAttribute('for', 'absStaff');
+    staffLabel.setAttribute('for', 'spStaff');
     const staffSelect = el('select');
-    staffSelect.id = 'absStaff';
-    // 徒弟不排班，登錄他們的公差沒有意義
-    for (const person of state.data.staff.filter((p) => p.is_active && p.role === 'MASTER')) {
-      staffSelect.append(new Option(person.name, String(person.staff_id)));
+    staffSelect.id = 'spStaff';
+    // 徒弟不排班，公差也只指派給師傅；依累計公差次數由少到多排，輪得少的排在前面
+    const pickable = state.data.fairness
+      .filter((f) => f.is_active && f.role === 'MASTER')
+      .sort((a, b) => a.special_count - b.special_count || a.staff_id - b.staff_id);
+    for (const person of pickable) {
+      const week = specialCountOf(person.staff_id);
+      staffSelect.append(new Option(
+        `${person.name}（累計 ${person.special_count} 次${week ? `・本週 ${week}` : ''}）`,
+        String(person.staff_id),
+      ));
     }
-    staffField.append(staffLabel, staffSelect);
+    staffField.append(staffLabel, staffSelect, el('span', 'field__hint', '依累計公差次數由少到多排序'));
 
-    const dateField = el('div', 'field');
-    const dateLabel = el('label', null, '日期');
-    dateLabel.setAttribute('for', 'absDate');
-    const dateInput = el('input');
-    dateInput.type = 'date';
-    dateInput.id = 'absDate';
-    dateInput.min = state.data.schedule.week_start_date;
-    dateInput.max = state.data.schedule.week_end_date;
-    dateInput.value = state.data.schedule.dates[state.day];
-    dateField.append(dateLabel, dateInput, el('span', 'field__hint', '限本週週一至週五'));
-
-    const typeField = el('div', 'field');
-    const typeLabel = el('label', null, '類型');
-    typeLabel.setAttribute('for', 'absType');
-    const typeSelect = el('select');
-    typeSelect.id = 'absType';
-    typeSelect.append(new Option('公差', 'OFFICIAL'), new Option('請假', 'LEAVE'));
-    typeField.append(typeLabel, typeSelect);
+    const dayField = el('div', 'field');
+    const dayLabel = el('label', null, '時間');
+    dayLabel.setAttribute('for', 'spDay');
+    const daySelect = el('select');
+    daySelect.id = 'spDay';
+    daySelect.append(new Option('整週', ''));
+    for (const day of [1, 2, 3, 4, 5]) daySelect.append(new Option(`週${DAY_NAMES[day]}`, String(day)));
+    dayField.append(dayLabel, daySelect);
 
     const noteField = el('div', 'field');
     const noteLabel = el('label', null, '備註');
-    noteLabel.setAttribute('for', 'absNote');
+    noteLabel.setAttribute('for', 'spNote');
     const noteInput = el('input');
     noteInput.type = 'text';
-    noteInput.id = 'absNote';
-    noteInput.placeholder = '例：校外研習';
+    noteInput.id = 'spNote';
+    noteInput.placeholder = '例：帶新生導覽';
     noteField.append(noteLabel, noteInput);
 
     const error = el('p', 'field__error');
@@ -820,28 +912,29 @@ function openAbsenceSheet() {
 
     const submit = el('button', 'btn btn--block btn--primary');
     submit.type = 'button';
-    submit.append(icon('i-check'), el('span', null, '登錄'));
+    submit.append(icon('i-check'), el('span', null, '指派'));
     submit.addEventListener('click', async () => {
-      if (!dateInput.value || dateInput.value < dateInput.min || dateInput.value > dateInput.max) {
-        error.textContent = '日期需落在本週週一至週五，請重新選擇。';
+      try {
+        absorb(await api('/api/specials', {
+          method: 'POST',
+          body: {
+            week: state.week,
+            staff_id: Number(staffSelect.value),
+            item_id: Number(taskSelect.value),
+            day_of_week: daySelect.value ? Number(daySelect.value) : null,
+            note: noteInput.value.trim() || null,
+          },
+        }));
+      } catch (e) {
+        error.textContent = e.message;
         error.hidden = false;
-        dateInput.focus();
         return;
       }
-      absorb(await api('/api/absences', {
-        method: 'POST',
-        body: {
-          staff_id: Number(staffSelect.value),
-          absence_date: dateInput.value,
-          absence_type: typeSelect.value,
-          note: noteInput.value.trim() || null,
-        },
-      }));
       closeSheet();
-      toast('已登錄，重新排班時會自動避開');
+      toast('已指派公差');
     });
 
-    body.append(staffField, dateField, typeField, noteField, error, submit);
+    body.append(taskField, staffField, dayField, noteField, error, submit);
   });
 }
 
@@ -908,6 +1001,7 @@ const BOARD_SECTIONS = [
   { board: 'WHITEBOARD', shift: 'NOON', label: '白板・午休' },
   { board: 'BLACKBOARD', shift: 'ALL_WEEK', label: '黑板・全週職務' },
   { board: 'BLACKBOARD', shift: 'DAILY', label: '黑板・每日職務' },
+  { board: 'SPECIAL', shift: 'SPECIAL', label: '公差任務' },
 ];
 
 let adminTab = 'items';
@@ -1072,11 +1166,15 @@ function renderItemAdmin(body) {
   nameInput.placeholder = '例：育英樓 1F';
   nameField.append(nameLabel, nameInput);
 
-  const syncZone = () => {
-    zoneField.hidden = BOARD_SECTIONS[Number(sectionSelect.value)].shift !== 'FLAG';
+  const syncFields = () => {
+    const sec = BOARD_SECTIONS[Number(sectionSelect.value)];
+    zoneField.hidden = sec.shift !== 'FLAG';
+    // 公差是手動指派的，設幾個人沒有意義
+    capField.hidden = sec.board === 'SPECIAL';
+    nameInput.placeholder = sec.board === 'SPECIAL' ? '例：校慶佈置' : '例：育英樓 1F';
   };
-  sectionSelect.addEventListener('change', syncZone);
-  syncZone();
+  sectionSelect.addEventListener('change', syncFields);
+  syncFields();
 
   grid.append(sectionField, capField);
   form.append(grid, nameField, zoneField);
@@ -1490,7 +1588,6 @@ function renderChrome() {
 
 function render() {
   renderChrome();
-  renderDayStrip();
 
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.dataset.view !== state.tab;
@@ -1504,7 +1601,7 @@ function render() {
 
   if (state.tab === 'blackboard') renderBlackboard();
   else if (state.tab === 'whiteboard') renderWhiteboard();
-  else if (state.tab === 'absence') renderAbsence();
+  else if (state.tab === 'special') renderSpecial();
   else renderStats();
 }
 
@@ -1579,9 +1676,6 @@ async function boot() {
   bindChrome();
   try {
     await loadWeek(todayIso());
-    const today = todayIso();
-    const found = Object.entries(state.data.schedule.dates).find(([, d]) => d === today);
-    if (found) state.day = Number(found[0]);
     render();
   } catch (error) {
     toast(error.message, 'error');

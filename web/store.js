@@ -11,8 +11,8 @@ const STATE = {
   staff: [],
   items: [],
   fairness: {},          // staff_id -> 累計次數
-  weeks: {},             // 'YYYY-MM-DD' -> { status, rows, absences, ledger, ... }
-  nextIds: { staff: 1, item: 1, detail: 1, absence: 1 },
+  weeks: {},             // 'YYYY-MM-DD' -> { status, flag_days, rows, ledger, ... }
+  nextIds: { staff: 1, item: 1, detail: 1 },
 };
 
 let remoteDb = null;     // claude.use('db') 的結果，null 代表只能用本機
@@ -75,7 +75,7 @@ async function initStore() {
     STATE.staff = config.staff ?? [];
     STATE.items = config.items ?? [];
     STATE.fairness = config.fairness ?? {};
-    STATE.nextIds = { staff: 1, item: 1, detail: 1, absence: 1, ...(config.nextIds ?? {}) };
+    STATE.nextIds = { staff: 1, item: 1, detail: 1, ...(config.nextIds ?? {}) };
     return { synced: Boolean(remoteDb), seeded: false };
   }
 
@@ -87,7 +87,6 @@ async function initStore() {
       staff: Math.max(0, ...STATE.staff.map((s) => s.staff_id)) + 1,
       item: Math.max(0, ...STATE.items.map((i) => i.item_id)) + 1,
       detail: 1,
-      absence: 1,
     };
     await saveConfig();
     return { synced: Boolean(remoteDb), seeded: true };
@@ -122,6 +121,7 @@ function blankStat() {
     morning_whiteboard_count: 0,
     flag_whiteboard_count: 0,
     noon_whiteboard_count: 0,
+    special_count: 0,
   };
 }
 
@@ -158,10 +158,13 @@ function ensureWeek(week) {
   if (!STATE.weeks[week]) {
     STATE.weeks[week] = {
       week_start_date: week, status: 'DRAFT', generated_at: null, published_at: null,
-      rows: [], absences: [], ledger: {},
+      flag_days: [], rows: [], ledger: {},
     };
   }
-  return STATE.weeks[week];
+  const data = STATE.weeks[week];
+  // 舊備份沒有這個欄位；補上才不會在讀取時炸掉
+  if (!Array.isArray(data.flag_days)) data.flag_days = [];
+  return data;
 }
 
 const findRow = (week, detailId) => ensureWeek(week).rows.find((r) => r.detail_id === detailId) ?? null;
@@ -205,12 +208,10 @@ async function importAll(data) {
   // 沿用備份裡的最大編號往下發，避免與既有資料撞號
   const maxOf = (list, key) => Math.max(0, ...list.map((x) => x[key] ?? 0));
   const allRows = Object.values(STATE.weeks).flatMap((w) => w.rows ?? []);
-  const allAbsences = Object.values(STATE.weeks).flatMap((w) => w.absences ?? []);
   STATE.nextIds = {
     staff: maxOf(STATE.staff, 'staff_id') + 1,
     item: maxOf(STATE.items, 'item_id') + 1,
     detail: maxOf(allRows, 'detail_id') + 1,
-    absence: maxOf(allAbsences, 'absence_id') + 1,
   };
 
   loadedWeeks = new Set(Object.keys(STATE.weeks));

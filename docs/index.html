@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FBFBFC'/%3E%3Crect x='5' y='7' width='9' height='18' rx='3' fill='%232F5FD0'/%3E%3Crect x='18' y='7' width='9' height='18' rx='3' fill='%230F9B8E'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FBFBFC'/%3E%3Crect x='5' y='7' width='9' height='18' rx='3' fill='%232F5FD0'/%3E%3Crect x='18' y='7' width='9' height='18' rx='3' fill='%230F9B8E'/%3E%3C/svg%3E">
 <title>雙板排班</title>
-<meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、Plan B 雙層備援。">
+<meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、升旗事件與公差指派。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap">
@@ -176,34 +176,25 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 }
 .iconbtn:active { background: var(--sunken); }
 
-/* 星期條 */
-.daystrip {
-  display: flex; gap: 8px;
-  padding: 4px 0 10px;
-  overflow-x: auto; scrollbar-width: none;
-  scroll-snap-type: x proximity;
+/* 升旗日選擇器（升旗是事件，只在指定的日子排人） */
+.daypick {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+  margin-top: 4px;
 }
-.daystrip::-webkit-scrollbar { display: none; }
-
-.daychip {
-  flex: 1 0 auto; min-width: 58px; min-height: 54px;
+.daypick__chip {
+  min-height: 56px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  padding: 6px 10px;
+  padding: 6px 2px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
-  color: var(--ink-2); scroll-snap-align: center;
+  color: var(--ink-2);
   transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
 }
-.daychip__d { font-size: 13px; font-weight: 500; }
-.daychip__n { font-size: 15px; font-weight: 700; }
-.daychip[aria-pressed="true"] {
-  background: var(--ink); border-color: var(--ink); color: var(--bg);
+.daypick__d { font-size: 13px; font-weight: 500; }
+.daypick__n { font-size: 13px; font-weight: 700; }
+.daypick__chip[aria-pressed="true"] {
+  background: var(--topaz-soft); border-color: var(--topaz); color: var(--topaz-ink);
 }
-.daychip[data-today="1"]::after {
-  content: ''; width: 4px; height: 4px; border-radius: 50%;
-  background: currentColor; opacity: .7;
-}
-.daychip:active { transform: scale(.96); }
-.daychip[data-absent="1"] .daychip__n { color: inherit; }
+.daypick__chip:active { transform: scale(.96); }
 
 /* ---- 4. 內容區 ---- */
 .screen {
@@ -303,7 +294,6 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   content: ''; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; opacity: .55;
 }
-.tag--absent { text-decoration: line-through; opacity: .55; }
 .tag--dragging { opacity: .35; }
 .tag--dropzone { box-shadow: 0 0 0 3px var(--sapphire); }
 
@@ -439,9 +429,12 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 
 /* ---- 10. 統計 ---- */
 .rings { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.rings--wide { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.rings--wide svg { width: 62px; height: 62px; }
-.rings--wide .ring__val { font-size: 15px; }
+/* 五個維度（黑板／早修／升旗／午休／公差）排成一列，手機寬度也不換行 */
+.rings--wide { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.rings--wide .ring { gap: 4px; }
+.rings--wide .ring svg { width: 52px; height: 52px; }
+.rings--wide .ring__val { font-size: 14px; }
+.rings--wide .ring__label { font-size: 11px; }
 .ring { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .ring svg { width: 76px; height: 76px; transform: rotate(-90deg); }
 .ring__track { fill: none; stroke: var(--sunken); stroke-width: 9; }
@@ -464,6 +457,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .bar--am { background: var(--emerald); }
 .bar--fl { background: var(--topaz); }
 .bar--pm { background: var(--amethyst); }
+.bar--sp { background: var(--ruby); }
 .bar--zero { background: var(--border-strong); }
 .person__total { width: 30px; text-align: right; font-size: 15px; font-weight: 700; }
 .person--off .person__name { color: var(--ink-3); text-decoration: line-through; }
@@ -681,6 +675,26 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 /* 兩欄表（點位｜人員）固定比例，名稱長也不會把人員欄擠掉 */
 .sched--pair th[scope="row"] { width: 58%; }
 
+/* 白板四欄表：點位｜人員｜點位｜人員，照實體白板的兩欄寫法 */
+.sched--pair4 th[scope="row"] { min-width: 84px; width: 28%; }
+.sched--pair4 td { min-width: 76px; width: 22%; }
+.sched--pair4 td:nth-child(2) { border-right: 2px solid var(--border-strong); }
+.sched--pair4 .tag { padding: 4px 8px; }
+
+/* 同一點位排多人時，名牌上下疊 */
+.cell-tags { display: flex; flex-direction: column; }
+.cell-tags .tag + .tag { border-top: 1px solid var(--border); }
+
+/* 公差表：任務名可能較長，人員欄不要被擠掉 */
+.sched--special th[scope="row"] { min-width: 104px; }
+
+/* 升旗底下的定點／巡查小標 */
+.zone-title {
+  margin: 2px 4px -8px;
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  color: var(--ink-3);
+}
+
 /* 黑板的每日欄位窄，字級再收一點 */
 .sched--week th[scope="row"] { min-width: 62px; }
 .sched--week td { min-width: 58px; }
@@ -755,7 +769,6 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
       <svg class="icon" aria-hidden="true"><use href="#i-next"/></svg>
     </button>
   </div>
-  <nav class="daystrip" id="dayStrip" aria-label="選擇星期"></nav>
 </header>
 
 <main class="screen" id="screen">
@@ -764,7 +777,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   <!-- 白板 -->
   <section class="view" id="view-whiteboard" data-view="whiteboard" hidden></section>
   <!-- 公差 -->
-  <section class="view" id="view-absence" data-view="absence" hidden></section>
+  <section class="view" id="view-special" data-view="special" hidden></section>
   <!-- 統計 -->
   <section class="view" id="view-stats" data-view="stats" hidden></section>
 </main>
@@ -780,8 +793,8 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   <button class="fab" id="generateBtn" type="button" aria-label="一鍵自動排班">
     <svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>
   </button>
-  <button class="tab" data-tab="absence" type="button">
-    <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>公差</span>
+  <button class="tab" data-tab="special" type="button">
+    <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>公差</span>
   </button>
   <button class="tab" data-tab="stats" type="button">
     <svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span>統計</span>
@@ -811,7 +824,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 (function () {
 'use strict';
 /* ===== 內建名冊與點位（來自 src/db/seed.sql） ===== */
-const BUILT_IN_SEED = {"staff":[{"staff_id":1,"name":"陳泓霖","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":2,"name":"莊沛璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":3,"name":"卓裕軒","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":4,"name":"黃宥璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":5,"name":"江楊若彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":6,"name":"施沛彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":7,"name":"楊濬萁","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":8,"name":"朱月","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":9,"name":"陳弘哲","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":10,"name":"趙彥瑾","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":11,"name":"謝承諺","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":12,"name":"邱子晉","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":13,"name":"顏佑倫","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":14,"name":"何冠勝","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":15,"name":"曾予咸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":16,"name":"連宇翔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":17,"name":"陳思璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":18,"name":"饒庭碩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":19,"name":"謝丞皓","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":20,"name":"陳宇弘","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":21,"name":"周琖洋","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":22,"name":"邱則楷","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":23,"name":"吳沛潔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":24,"name":"胡紫甯","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":25,"name":"陳則安","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":26,"name":"徐亦華","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":27,"name":"吳家捷","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":28,"name":"謝筱彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":29,"name":"吳沛戎","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":30,"name":"陳姿羽","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":31,"name":"温俐綺","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":32,"name":"劉宸鈞","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":33,"name":"張瑀恩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":34,"name":"陳品芸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":35,"name":"來恩萸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":36,"name":"童珈靜","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":37,"name":"游智安","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":38,"name":"古采靜","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":39,"name":"游竣翔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":40,"name":"邱念恩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":41,"name":"詹妤靖","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":42,"name":"卓孟妍","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":43,"name":"陳崇証","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":44,"name":"葉倉豪","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":45,"name":"李宥萱","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":46,"name":"姚恩芯","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":47,"name":"徐侑暄","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":48,"name":"謝可薇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":49,"name":"羅于婷","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":50,"name":"黃郁璇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":51,"name":"劉羽庭","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":52,"name":"朱品瑜","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":53,"name":"劉少庭","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":54,"name":"邱怡茹","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":55,"name":"陳意涵","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":56,"name":"吳翰橙","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":57,"name":"鄒恩浚","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":58,"name":"林億玟","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":59,"name":"林鈺真","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":60,"name":"詹心萍","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":61,"name":"何承煜","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":62,"name":"劉彥甯","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":63,"name":"曾楷婷","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":64,"name":"林延霆","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":65,"name":"張盛凱","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":66,"name":"王柏勳","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":67,"name":"林楷諺","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":68,"name":"高以璇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":69,"name":"陳筠溱","staff_group":"高二組","role":"MASTER","is_active":true}],"items":[{"item_id":1,"board_type":"BLACKBOARD","shift_type":"ALL_WEEK","item_name":"交接","required_capacity":1,"zone":"","sort_order":10},{"item_id":2,"board_type":"BLACKBOARD","shift_type":"ALL_WEEK","item_name":"值日生","required_capacity":1,"zone":"","sort_order":20},{"item_id":3,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"餐車","required_capacity":1,"zone":"","sort_order":40},{"item_id":4,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"早修","required_capacity":1,"zone":"","sort_order":50},{"item_id":5,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"午休","required_capacity":1,"zone":"","sort_order":60},{"item_id":6,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"校表","required_capacity":1,"zone":"","sort_order":70},{"item_id":17,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英1F(中)","required_capacity":1,"zone":"定點","sort_order":10},{"item_id":18,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"7-11","required_capacity":1,"zone":"定點","sort_order":20},{"item_id":19,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"熱水台","required_capacity":1,"zone":"定點","sort_order":30},{"item_id":20,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"紀念館1F","required_capacity":1,"zone":"定點","sort_order":40},{"item_id":21,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"更生樓1F","required_capacity":1,"zone":"定點","sort_order":50},{"item_id":22,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教務處走廊","required_capacity":1,"zone":"定點","sort_order":60},{"item_id":23,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大電梯","required_capacity":1,"zone":"定點","sort_order":70},{"item_id":24,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興樓1F","required_capacity":1,"zone":"定點","sort_order":80},{"item_id":25,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"保健室1F","required_capacity":1,"zone":"定點","sort_order":90},{"item_id":26,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興樓(右)2F","required_capacity":1,"zone":"定點","sort_order":100},{"item_id":27,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英2F(中)","required_capacity":1,"zone":"定點","sort_order":110},{"item_id":28,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"辦公室","required_capacity":1,"zone":"巡查","sort_order":120},{"item_id":29,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大345F","required_capacity":1,"zone":"巡查","sort_order":130},{"item_id":30,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大678F","required_capacity":1,"zone":"巡查","sort_order":140},{"item_id":31,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英樓","required_capacity":1,"zone":"巡查","sort_order":150},{"item_id":32,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興樓","required_capacity":1,"zone":"巡查","sort_order":160},{"item_id":33,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"更生+莊敬","required_capacity":1,"zone":"巡查","sort_order":170},{"item_id":34,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"自強+紀念","required_capacity":1,"zone":"巡查","sort_order":180},{"item_id":35,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"地下室","required_capacity":1,"zone":"巡查","sort_order":190},{"item_id":7,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"廣興樓","required_capacity":1,"zone":"","sort_order":10},{"item_id":8,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大3-4F","required_capacity":1,"zone":"","sort_order":20},{"item_id":9,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大5-6F","required_capacity":1,"zone":"","sort_order":30},{"item_id":10,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"莊敬樓","required_capacity":1,"zone":"","sort_order":40},{"item_id":11,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"育英樓","required_capacity":1,"zone":"","sort_order":50},{"item_id":12,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大7-8F","required_capacity":1,"zone":"","sort_order":60},{"item_id":13,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"7-11","required_capacity":1,"zone":"","sort_order":70},{"item_id":14,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"更生樓","required_capacity":1,"zone":"","sort_order":80},{"item_id":15,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"自強+紀念","required_capacity":1,"zone":"","sort_order":90},{"item_id":16,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大電梯","required_capacity":1,"zone":"","sort_order":100},{"item_id":36,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大電梯+1-2F","required_capacity":1,"zone":"","sort_order":10},{"item_id":37,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大3-4F","required_capacity":1,"zone":"","sort_order":20},{"item_id":38,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大5-6F+空中花園","required_capacity":1,"zone":"","sort_order":30},{"item_id":39,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大7-8F","required_capacity":1,"zone":"","sort_order":40},{"item_id":40,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"紀念館1-6F","required_capacity":1,"zone":"","sort_order":50},{"item_id":41,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"自強樓","required_capacity":1,"zone":"","sort_order":60},{"item_id":42,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"PU跑道","required_capacity":1,"zone":"","sort_order":70},{"item_id":43,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"莊敬樓","required_capacity":1,"zone":"","sort_order":80},{"item_id":44,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"更生樓","required_capacity":1,"zone":"","sort_order":90},{"item_id":45,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"育英樓","required_capacity":1,"zone":"","sort_order":100},{"item_id":46,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"廣興樓","required_capacity":1,"zone":"","sort_order":110},{"item_id":47,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"711","required_capacity":1,"zone":"","sort_order":120}]};
+const BUILT_IN_SEED = {"staff":[{"staff_id":1,"name":"陳泓霖","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":2,"name":"莊沛璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":3,"name":"卓裕軒","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":4,"name":"黃宥璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":5,"name":"江楊若彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":6,"name":"施沛彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":7,"name":"楊濬萁","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":8,"name":"朱月","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":9,"name":"陳弘哲","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":10,"name":"趙彥瑾","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":11,"name":"謝承諺","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":12,"name":"邱子晉","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":13,"name":"顏佑倫","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":14,"name":"何冠勝","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":15,"name":"曾予咸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":16,"name":"連宇翔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":17,"name":"陳思璇","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":18,"name":"饒庭碩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":19,"name":"謝丞皓","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":20,"name":"陳宇弘","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":21,"name":"周琖洋","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":22,"name":"邱則楷","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":23,"name":"吳沛潔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":24,"name":"胡紫甯","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":25,"name":"陳則安","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":26,"name":"徐亦華","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":27,"name":"吳家捷","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":28,"name":"謝筱彤","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":29,"name":"吳沛戎","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":30,"name":"陳姿羽","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":31,"name":"温俐綺","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":32,"name":"劉宸鈞","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":33,"name":"張瑀恩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":34,"name":"陳品芸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":35,"name":"來恩萸","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":36,"name":"童珈靜","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":37,"name":"游智安","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":38,"name":"古采靜","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":39,"name":"游竣翔","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":40,"name":"邱念恩","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":41,"name":"詹妤靖","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":42,"name":"卓孟妍","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":43,"name":"陳崇証","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":44,"name":"葉倉豪","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":45,"name":"李宥萱","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":46,"name":"姚恩芯","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":47,"name":"徐侑暄","staff_group":"高一組","role":"APPRENTICE","is_active":true},{"staff_id":48,"name":"謝可薇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":49,"name":"羅于婷","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":50,"name":"黃郁璇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":51,"name":"劉羽庭","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":52,"name":"朱品瑜","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":53,"name":"劉少庭","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":54,"name":"邱怡茹","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":55,"name":"陳意涵","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":56,"name":"吳翰橙","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":57,"name":"鄒恩浚","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":58,"name":"林億玟","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":59,"name":"林鈺真","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":60,"name":"詹心萍","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":61,"name":"何承煜","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":62,"name":"劉彥甯","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":63,"name":"曾楷婷","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":64,"name":"林延霆","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":65,"name":"張盛凱","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":66,"name":"王柏勳","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":67,"name":"林楷諺","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":68,"name":"高以璇","staff_group":"高二組","role":"MASTER","is_active":true},{"staff_id":69,"name":"陳筠溱","staff_group":"高二組","role":"MASTER","is_active":true}],"items":[{"item_id":1,"board_type":"BLACKBOARD","shift_type":"ALL_WEEK","item_name":"交接","required_capacity":1,"zone":"","sort_order":10},{"item_id":2,"board_type":"BLACKBOARD","shift_type":"ALL_WEEK","item_name":"值日生","required_capacity":1,"zone":"","sort_order":20},{"item_id":3,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"餐車","required_capacity":1,"zone":"","sort_order":40},{"item_id":4,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"早修","required_capacity":1,"zone":"","sort_order":50},{"item_id":5,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"午休","required_capacity":1,"zone":"","sort_order":60},{"item_id":6,"board_type":"BLACKBOARD","shift_type":"DAILY","item_name":"校表","required_capacity":1,"zone":"","sort_order":70},{"item_id":48,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"辦公室","required_capacity":1,"zone":"","sort_order":10},{"item_id":49,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"教大345F","required_capacity":1,"zone":"","sort_order":20},{"item_id":50,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"教大678F","required_capacity":1,"zone":"","sort_order":30},{"item_id":51,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"育英樓","required_capacity":1,"zone":"","sort_order":40},{"item_id":52,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"廣興樓","required_capacity":1,"zone":"","sort_order":50},{"item_id":53,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"更生+莊敬","required_capacity":1,"zone":"","sort_order":60},{"item_id":54,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"自強+紀念","required_capacity":1,"zone":"","sort_order":70},{"item_id":55,"board_type":"SPECIAL","shift_type":"SPECIAL","item_name":"地下室","required_capacity":1,"zone":"","sort_order":80},{"item_id":17,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英1F(中)","required_capacity":1,"zone":"定點","sort_order":10},{"item_id":18,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"7-11","required_capacity":1,"zone":"定點","sort_order":20},{"item_id":19,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"熱水台","required_capacity":1,"zone":"定點","sort_order":30},{"item_id":20,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"紀念館1F","required_capacity":1,"zone":"定點","sort_order":40},{"item_id":21,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"更生樓1F","required_capacity":1,"zone":"定點","sort_order":50},{"item_id":22,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教務處走廊","required_capacity":1,"zone":"定點","sort_order":60},{"item_id":23,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大電梯","required_capacity":1,"zone":"定點","sort_order":70},{"item_id":24,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興樓1F","required_capacity":1,"zone":"定點","sort_order":80},{"item_id":25,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"保健室1F","required_capacity":1,"zone":"定點","sort_order":90},{"item_id":26,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興(右)2F","required_capacity":1,"zone":"定點","sort_order":100},{"item_id":27,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英2F(中)","required_capacity":1,"zone":"定點","sort_order":110},{"item_id":28,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"辦公室","required_capacity":1,"zone":"巡查","sort_order":120},{"item_id":29,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大345F","required_capacity":1,"zone":"巡查","sort_order":130},{"item_id":30,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"教大678F","required_capacity":1,"zone":"巡查","sort_order":140},{"item_id":31,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"育英樓","required_capacity":1,"zone":"巡查","sort_order":150},{"item_id":32,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"廣興樓","required_capacity":1,"zone":"巡查","sort_order":160},{"item_id":33,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"更生+莊敬","required_capacity":1,"zone":"巡查","sort_order":170},{"item_id":34,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"自強+紀念","required_capacity":1,"zone":"巡查","sort_order":180},{"item_id":35,"board_type":"WHITEBOARD","shift_type":"FLAG","item_name":"地下室","required_capacity":1,"zone":"巡查","sort_order":190},{"item_id":7,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"廣興樓","required_capacity":1,"zone":"","sort_order":10},{"item_id":8,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大3-4F","required_capacity":1,"zone":"","sort_order":20},{"item_id":9,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大5-6F","required_capacity":1,"zone":"","sort_order":30},{"item_id":10,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"莊敬樓","required_capacity":1,"zone":"","sort_order":40},{"item_id":11,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"育英樓","required_capacity":1,"zone":"","sort_order":50},{"item_id":12,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大7-8F","required_capacity":1,"zone":"","sort_order":60},{"item_id":13,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"7-11","required_capacity":1,"zone":"","sort_order":70},{"item_id":14,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"更生樓","required_capacity":1,"zone":"","sort_order":80},{"item_id":15,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"自強+紀念","required_capacity":1,"zone":"","sort_order":90},{"item_id":16,"board_type":"WHITEBOARD","shift_type":"MORNING","item_name":"教大電梯","required_capacity":1,"zone":"","sort_order":100},{"item_id":36,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大電梯+1-2F","required_capacity":1,"zone":"","sort_order":10},{"item_id":37,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大3-4F","required_capacity":1,"zone":"","sort_order":20},{"item_id":38,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大5-6F+空中花園","required_capacity":1,"zone":"","sort_order":30},{"item_id":39,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"教大7-8F","required_capacity":1,"zone":"","sort_order":40},{"item_id":40,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"紀念館","required_capacity":1,"zone":"","sort_order":50},{"item_id":41,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"自強樓","required_capacity":1,"zone":"","sort_order":60},{"item_id":42,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"PU跑道","required_capacity":1,"zone":"","sort_order":70},{"item_id":43,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"莊敬樓","required_capacity":1,"zone":"","sort_order":80},{"item_id":44,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"更生樓","required_capacity":1,"zone":"","sort_order":90},{"item_id":45,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"育英樓","required_capacity":1,"zone":"","sort_order":100},{"item_id":46,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"廣興樓","required_capacity":1,"zone":"","sort_order":110},{"item_id":47,"board_type":"WHITEBOARD","shift_type":"NOON","item_name":"7-11","required_capacity":1,"zone":"","sort_order":120}]};
 
 /* ===== src/domain/constants.js ===== */
 /** 規格 §2.1：一週僅排週一至週五。 */
@@ -828,27 +841,34 @@ const DAY_LABELS = {
 const BOARD = {
   WHITEBOARD: 'WHITEBOARD',
   BLACKBOARD: 'BLACKBOARD',
+  SPECIAL: 'SPECIAL',     // 公差：隊裡的特殊任務
 };
 
 const SHIFT = {
-  MORNING: 'MORNING',   // 早修
-  FLAG: 'FLAG',         // 升旗（含定點與巡查兩種任務，同一時段）
-  NOON: 'NOON',         // 午休
-  ALL_WEEK: 'ALL_WEEK', // 黑板全週職務
-  DAILY: 'DAILY',       // 黑板每日職務
+  MORNING: 'MORNING',     // 早修 —— 整週同一人
+  FLAG: 'FLAG',           // 升旗 —— 只在指定的升旗日，平常整塊空著
+  NOON: 'NOON',           // 午休 —— 整週同一人
+  ALL_WEEK: 'ALL_WEEK',   // 黑板全週職務
+  DAILY: 'DAILY',         // 黑板每日職務
+  SPECIAL: 'SPECIAL',     // 公差 —— 主管手動指派
 };
 
 const SHIFT_LABEL = {
   [SHIFT.MORNING]: '早修',
   [SHIFT.FLAG]: '升旗',
   [SHIFT.NOON]: '午休',
+  [SHIFT.ALL_WEEK]: '全週職務',
+  [SHIFT.DAILY]: '每日職務',
+  [SHIFT.SPECIAL]: '公差',
 };
 
 /**
- * 白板的三個時段，依實際作息先後排列。
- * 升旗的「定點」與「巡查」是同一時段的兩種任務，
- * 因此共用一個名額上限——一個人在升旗時段只會站一個位置。
+ * 白板依週指派的時段：一個點位整週同一人，一週洗牌一次。
+ * 升旗不在其中——它是事件，只在升旗日才排。
  */
+const WEEKLY_SHIFTS = [SHIFT.MORNING, SHIFT.NOON];
+
+/** 白板的三個時段，依實際作息先後排列。 */
 const WHITEBOARD_SHIFTS = [SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON];
 
 /** 升旗時段內的任務分區，僅供看板分組顯示。 */
@@ -863,8 +883,8 @@ const ZONE = {
  * 由主管手動升級為師傅後才會被排到班。
  */
 const ROLE = {
-  MASTER: 'MASTER',       // 師傅：可排班
-  APPRENTICE: 'APPRENTICE', // 徒弟：不排班
+  MASTER: 'MASTER',
+  APPRENTICE: 'APPRENTICE',
 };
 
 const ROLE_LABEL = {
@@ -875,7 +895,7 @@ const ROLE_LABEL = {
 const WARNING = {
   UNDERSTAFFED: 'UNDERSTAFFED',             // 點位人數不足，留下空缺
   CONSTRAINT_RELAXED: 'CONSTRAINT_RELAXED', // 為填滿點位而放寬軟性限制
-  CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 單一時段名額總數超過可排班師傅數
+  CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 名額總數超過可排班師傅數
   IDLE_STAFF: 'IDLE_STAFF',                 // 有師傅整週沒有任何任務
 };
 
@@ -946,10 +966,13 @@ const DIMENSION = {
   MORNING: 'morning',
   FLAG: 'flag',
   NOON: 'noon',
+  SPECIAL: 'special',
 };
 
-/** 四個任務維度，各自獨立排序與累計。 */
-const WORK_DIMENSIONS = [DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.FLAG, DIMENSION.NOON];
+/** 五個任務維度，各自獨立排序與累計。 */
+const WORK_DIMENSIONS = [
+  DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.FLAG, DIMENSION.NOON, DIMENSION.SPECIAL,
+];
 
 /** fairness_stats 的欄位名對映。 */
 const DIMENSION_COLUMN = {
@@ -957,6 +980,7 @@ const DIMENSION_COLUMN = {
   [DIMENSION.MORNING]: 'morning_whiteboard_count',
   [DIMENSION.FLAG]: 'flag_whiteboard_count',
   [DIMENSION.NOON]: 'noon_whiteboard_count',
+  [DIMENSION.SPECIAL]: 'special_count',
 };
 
 /**
@@ -998,6 +1022,7 @@ class LoadTracker {
         morning: base.morning_whiteboard_count ?? 0,
         flag: base.flag_whiteboard_count ?? 0,
         noon: base.noon_whiteboard_count ?? 0,
+        special: base.special_count ?? 0,
         weekAssigned: 0,
       });
     }
@@ -1006,7 +1031,7 @@ class LoadTracker {
   #row(staffId) {
     let row = this.load.get(staffId);
     if (!row) {
-      row = { blackboard: 0, morning: 0, flag: 0, noon: 0, weekAssigned: 0 };
+      row = { blackboard: 0, morning: 0, flag: 0, noon: 0, special: 0, weekAssigned: 0 };
       this.load.set(staffId, row);
     }
     return row;
@@ -1019,7 +1044,7 @@ class LoadTracker {
   /** 累計工作量（不含待命次數）。 */
   total(staffId) {
     const r = this.#row(staffId);
-    return r.blackboard + r.morning + r.flag + r.noon;
+    return r.blackboard + r.morning + r.flag + r.noon + r.special;
   }
 
   weekAssigned(staffId) {
@@ -1062,25 +1087,24 @@ function comparatorFor(dimension, tracker, tieRanks) {
 
 /* ===== src/domain/scheduler.js ===== */
 /**
- * 一鍵自動排班引擎 —— 規格 §4。
+ * 一鍵自動排班引擎。
  *
- * 純函式：輸入人員 / 點位字典 / 公平性統計 / 公差事件，輸出整週指派結果。
+ * 純函式：輸入人員 / 點位字典 / 公平性統計 / 升旗日，輸出整週指派結果。
  * 不碰資料庫、不依賴時間，因此可完整單元測試與回放。
  *
  * 執行順序：
- *   A. 黑板全週職務（交接、值日生）
- *   B. 黑板每日職務（餐車、早修、午休、校表）
- *   C. 白板三個時段：早修 → 升旗 → 午休
- *      升旗底下的「定點」與「巡查」是同一時段的兩種任務，共用名額上限。
+ *   A. 黑板全週職務（交接、值日生）—— 1 人 1 週
+ *   B. 黑板每日職務（餐車、早修、午休、校表）—— 每天各 1 人
+ *   C. 白板依週指派（早修、午休）—— 一個點位整週同一人，一週洗牌一次
+ *   D. 白板升旗 —— 只在指定的升旗日才排，平常整塊空著
  *
- * 每個人都要有任務：所有可排班的師傅一律進入候選池，
- * 生成後若仍有人整週掛零會回報 IDLE_STAFF。
+ * 公差（隊裡的特殊任務）不在這裡：它由主管手動指派，只是會計入公平性統計。
  *
  * 師徒制：只有「師傅」進入排班池。徒弟跟著自己的師傅學習，
  * 不排班、不計入點位人數，由主管手動升級為師傅後才會被排到班。
  *
- * 容量上限：每人每個時段只能站一個點位，因此單一時段的名額總數
- * 不能超過可排班的師傅數，超過的部分必然留空並回報 CAPACITY_EXCEEDED。
+ * 每個人都要有任務：所有可排班的師傅一律進入候選池，
+ * 生成後若仍有人整週掛零會回報 IDLE_STAFF。
  */
 
 
@@ -1100,65 +1124,33 @@ function selectItems(items, boardType, shiftType) {
   return sortItems(items.filter((i) => i.board_type === boardType && i.shift_type === shiftType));
 }
 
-/**
- * 本週狀態機：追蹤誰在哪一天、哪一個時段、哪一個點位已被佔用。
- */
+/** 本週狀態機：追蹤誰已經被排到哪裡。 */
 class WeekState {
   constructor() {
-    this.absent = new Set();             // `${staffId}:${day}`
     this.allWeekHolders = new Set();     // 已擔任全週職務者
     this.blackboardByDay = new Map();    // day -> Set<staffId>
-    this.shiftByDay = new Map();         // `${shift}:${day}` -> Set<staffId>，該時段已排到的人
-    this.spotsByDay = new Map();         // day -> Map<staffId, Set<item_name>>，當日已站過的點位
+    this.weeklySpots = new Map();        // staffId -> Set<item_name>，本週已站的白板點位
+    this.flagByDay = new Map();          // day -> Set<staffId>
     for (const d of WEEK_DAYS) {
       this.blackboardByDay.set(d, new Set());
-      this.spotsByDay.set(d, new Map());
-      for (const shift of WHITEBOARD_SHIFTS) this.shiftByDay.set(`${shift}:${d}`, new Set());
+      this.flagByDay.set(d, new Set());
     }
   }
 
-  /** 該員當日在此時段是否已有點位。 */
-  isOnShift(staffId, shift, day) {
-    return this.shiftByDay.get(`${shift}:${day}`).has(staffId);
+  /** 該員本週是否已站過同名的白板點位。 */
+  hasWeeklySpot(staffId, itemName) {
+    return this.weeklySpots.get(staffId)?.has(itemName) ?? false;
   }
 
-  /** 該員當日是否已站過同名點位（跨時段不重複）。 */
-  hasSpot(staffId, day, itemName) {
-    return this.spotsByDay.get(day).get(staffId)?.has(itemName) ?? false;
-  }
-
-  place(staffId, shift, day, itemName) {
-    this.shiftByDay.get(`${shift}:${day}`).add(staffId);
-    const spots = this.spotsByDay.get(day);
-    if (!spots.has(staffId)) spots.set(staffId, new Set());
-    spots.get(staffId).add(itemName);
-  }
-
-  markAbsent(staffId, day) {
-    this.absent.add(`${staffId}:${day}`);
-  }
-
-  isAbsent(staffId, day) {
-    return this.absent.has(`${staffId}:${day}`);
-  }
-
-  isAbsentAnyDay(staffId) {
-    return WEEK_DAYS.some((d) => this.isAbsent(staffId, d));
-  }
-}
-
-/** 把公差事件轉成「人員 x 星期」的缺席標記。 */
-function applyAbsences(state, absences, weekStartDate) {
-  for (const a of absences ?? []) {
-    const day = a.day_of_week ?? dayOfWeekFor(weekStartDate, a.absence_date);
-    if (day) state.markAbsent(a.staff_id, day);
+  placeWeekly(staffId, itemName) {
+    if (!this.weeklySpots.has(staffId)) this.weeklySpots.set(staffId, new Set());
+    this.weeklySpots.get(staffId).add(itemName);
   }
 }
 
 /**
  * 依序套用多層候選條件，第一層為硬性 + 軟性限制，
  * 後續層逐步放寬軟性限制；硬性限制永不放寬。
- * @returns {{ staff: object|null, relaxed: boolean }}
  */
 function pickCandidate(pool, filters, comparator) {
   for (let level = 0; level < filters.length; level += 1) {
@@ -1175,53 +1167,46 @@ function generateWeeklyPlan({
   staff = [],
   items = [],
   stats = new Map(),
-  absences = [],
   weekStartDate,
+  flagDays = [],
 }) {
   if (!weekStartDate) throw new Error('generateWeeklyPlan 需要 weekStartDate');
 
   // 排班池只有師傅；徒弟不排班也不計入點位人數
   const pool = staff.filter((s) => s.is_active && s.role === ROLE.MASTER);
-  const statsMap = stats instanceof Map ? stats : new Map(Object.entries(stats).map(([k, v]) => [Number(k), v]));
+  const statsMap = stats instanceof Map
+    ? stats
+    : new Map(Object.entries(stats).map(([k, v]) => [Number(k), v]));
 
   const state = new WeekState();
-  applyAbsences(state, absences, weekStartDate);
-
   const tracker = new LoadTracker(pool, statsMap);
   const tieRanks = buildTieRanks(pool, weekStartDate);
   const blackboardCmp = comparatorFor(DIMENSION.BLACKBOARD, tracker, tieRanks);
 
   const assignments = [];
   const warnings = [];
-
   const warn = (code, detail) => warnings.push({ code, ...detail });
+
+  const gap = (item, day, slotIndex = 0) => {
+    warn(WARNING.UNDERSTAFFED, { item_id: item.item_id, item_name: item.item_name, day_of_week: day });
+    assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slotIndex });
+  };
+
+  /** 一個點位可能要站好幾個人；名額數就是 required_capacity。 */
+  const slotsOf = (item) => Math.max(1, item.required_capacity ?? 1);
+  const totalSlots = (list) => list.reduce((sum, i) => sum + slotsOf(i), 0);
 
   // ---------------------------------------------------------------
   // A. 黑板 — 全週固定職務（交接、值日生），各 1 人、1 週 1 次
   // ---------------------------------------------------------------
   for (const item of selectItems(items, BOARD.BLACKBOARD, SHIFT.ALL_WEEK)) {
-    for (let slot = 0; slot < item.required_capacity; slot += 1) {
-      const { staff: chosen, relaxed } = pickCandidate(
+    for (let slot = 0; slot < slotsOf(item); slot += 1) {
+      const { staff: chosen } = pickCandidate(
         pool,
-        [
-          // 硬性：未擔任其他全週職務；軟性：整週皆可出勤
-          (s) => !state.allWeekHolders.has(s.staff_id) && !state.isAbsentAnyDay(s.staff_id),
-          (s) => !state.allWeekHolders.has(s.staff_id),
-        ],
+        [(s) => !state.allWeekHolders.has(s.staff_id)],
         blackboardCmp,
       );
-
-      if (!chosen) {
-        warn(WARNING.UNDERSTAFFED, { item_id: item.item_id, item_name: item.item_name, day_of_week: null });
-        assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: null, slot_index: slot });
-        continue;
-      }
-      if (relaxed) {
-        warn(WARNING.CONSTRAINT_RELAXED, {
-          item_id: item.item_id, item_name: item.item_name, day_of_week: null, staff_id: chosen.staff_id,
-          reason: '本週有公差紀錄仍指派全週職務',
-        });
-      }
+      if (!chosen) { gap(item, null, slot); continue; }
 
       state.allWeekHolders.add(chosen.staff_id);
       tracker.add(chosen.staff_id, DIMENSION.BLACKBOARD);
@@ -1236,26 +1221,21 @@ function generateWeeklyPlan({
   for (const day of WEEK_DAYS) {
     const taken = state.blackboardByDay.get(day);
     for (const item of dailyItems) {
-      for (let slot = 0; slot < item.required_capacity; slot += 1) {
+      for (let slot = 0; slot < slotsOf(item); slot += 1) {
         const { staff: chosen, relaxed } = pickCandidate(
           pool,
           [
-            // 硬性：當日可出勤、當日尚未有黑板任務；軟性：非全週職務持有者
-            (s) => !state.isAbsent(s.staff_id, day) && !taken.has(s.staff_id) && !state.allWeekHolders.has(s.staff_id),
-            (s) => !state.isAbsent(s.staff_id, day) && !taken.has(s.staff_id),
+            // 硬性：當日尚未有黑板任務；軟性：非全週職務持有者
+            (s) => !taken.has(s.staff_id) && !state.allWeekHolders.has(s.staff_id),
+            (s) => !taken.has(s.staff_id),
           ],
           blackboardCmp,
         );
-
-        if (!chosen) {
-          warn(WARNING.UNDERSTAFFED, { item_id: item.item_id, item_name: item.item_name, day_of_week: day });
-          assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
-          continue;
-        }
+        if (!chosen) { gap(item, day, slot); continue; }
         if (relaxed) {
           warn(WARNING.CONSTRAINT_RELAXED, {
-            item_id: item.item_id, item_name: item.item_name, day_of_week: day, staff_id: chosen.staff_id,
-            reason: '全週職務者兼任當日黑板任務',
+            item_id: item.item_id, item_name: item.item_name, day_of_week: day,
+            staff_id: chosen.staff_id, reason: '全週職務者兼任當日黑板任務',
           });
         }
 
@@ -1267,53 +1247,78 @@ function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // C. 白板 —— 早修 → 升旗 → 午休
+  // C. 白板依週指派 —— 早修、午休。一個點位整週同一人。
   // ---------------------------------------------------------------
-  for (const shift of WHITEBOARD_SHIFTS) {
+  for (const shift of WEEKLY_SHIFTS) {
     const shiftItems = selectItems(items, BOARD.WHITEBOARD, shift);
     if (shiftItems.length === 0) continue;
 
-    const demand = shiftItems.reduce((sum, i) => sum + i.required_capacity, 0);
-    const comparator = comparatorFor(SHIFT_DIMENSION[shift], tracker, tieRanks);
-
-    // 每人每個時段只能站一個點位，供給上限就是可排班人數
-    if (demand > pool.length) {
+    const required = totalSlots(shiftItems);
+    if (required > pool.length) {
       warn(WARNING.CAPACITY_EXCEEDED, {
         shift_type: shift,
         shift_label: SHIFT_LABEL[shift] ?? shift,
-        required: demand,
+        required,
         available: pool.length,
-        shortfall: demand - pool.length,
+        shortfall: required - pool.length,
       });
     }
 
+    const comparator = comparatorFor(SHIFT_DIMENSION[shift], tracker, tieRanks);
+    const placed = new Set();
+
     for (const item of shiftItems) {
-      for (const day of WEEK_DAYS) {
-        for (let slot = 0; slot < item.required_capacity; slot += 1) {
-          const { staff: chosen } = pickCandidate(
-            pool,
-            [
-              // 硬性：當日可出勤、該時段尚未有點位、當日未站過同名點位
-              (s) => !state.isAbsent(s.staff_id, day)
-                && !state.isOnShift(s.staff_id, shift, day)
-                && !state.hasSpot(s.staff_id, day, item.item_name),
-            ],
-            comparator,
-          );
+      for (let slot = 0; slot < slotsOf(item); slot += 1) {
+        const { staff: chosen } = pickCandidate(
+          pool,
+          [
+            // 硬性：本週該時段尚未有點位、且本週沒站過同名點位（早修午休不重複同一地點）
+            (s) => !placed.has(s.staff_id) && !state.hasWeeklySpot(s.staff_id, item.item_name),
+          ],
+          comparator,
+        );
+        if (!chosen) { gap(item, null, slot); continue; }
 
-          if (!chosen) {
-            warn(WARNING.UNDERSTAFFED, {
-              item_id: item.item_id, item_name: item.item_name,
-              day_of_week: day, shift_type: shift,
-            });
-            assignments.push({ item_id: item.item_id, staff_id: null, day_of_week: day, slot_index: slot });
-            continue;
-          }
+        placed.add(chosen.staff_id);
+        state.placeWeekly(chosen.staff_id, item.item_name);
+        tracker.add(chosen.staff_id, SHIFT_DIMENSION[shift]);
+        assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: null, slot_index: slot });
+      }
+    }
+  }
 
-          state.place(chosen.staff_id, shift, day, item.item_name);
-          tracker.add(chosen.staff_id, SHIFT_DIMENSION[shift]);
-          assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
-        }
+  // ---------------------------------------------------------------
+  // D. 白板升旗 —— 只在指定的升旗日排，其餘時候整塊空著
+  // ---------------------------------------------------------------
+  const flagItems = selectItems(items, BOARD.WHITEBOARD, SHIFT.FLAG);
+  const days = [...new Set(flagDays)].filter((d) => WEEK_DAYS.includes(d)).sort();
+
+  const flagRequired = totalSlots(flagItems);
+  if (flagItems.length > 0 && days.length > 0 && flagRequired > pool.length) {
+    warn(WARNING.CAPACITY_EXCEEDED, {
+      shift_type: SHIFT.FLAG,
+      shift_label: SHIFT_LABEL[SHIFT.FLAG],
+      required: flagRequired,
+      available: pool.length,
+      shortfall: flagRequired - pool.length,
+    });
+  }
+
+  const flagCmp = comparatorFor(DIMENSION.FLAG, tracker, tieRanks);
+  for (const day of days) {
+    const taken = state.flagByDay.get(day);
+    for (const item of flagItems) {
+      for (let slot = 0; slot < slotsOf(item); slot += 1) {
+        const { staff: chosen } = pickCandidate(
+          pool,
+          [(s) => !taken.has(s.staff_id)],
+          flagCmp,
+        );
+        if (!chosen) { gap(item, day, slot); continue; }
+
+        taken.add(chosen.staff_id);
+        tracker.add(chosen.staff_id, DIMENSION.FLAG);
+        assignments.push({ item_id: item.item_id, staff_id: chosen.staff_id, day_of_week: day, slot_index: slot });
       }
     }
   }
@@ -1329,10 +1334,8 @@ function generateWeeklyPlan({
 
   return {
     weekStartDate,
-    assignments: assignments.map((a) => ({
-      is_override: 0,
-      ...a,
-    })),
+    flagDays: days,
+    assignments: assignments.map((a) => ({ is_override: 0, ...a })),
     warnings,
     load: tracker.snapshot(),
   };
@@ -1340,40 +1343,37 @@ function generateWeeklyPlan({
 
 /* ===== src/domain/planX.js ===== */
 /**
- * Plan X 動態補位 —— 規格 §2.3。
+ * 換人與補位。
  *
- * 主管點擊名牌換人時，依當前負擔由輕到重推薦可用的師傅。
- * 同時提供覆寫衝突檢查：規格 §1 明訂主管具 100% 強制覆寫權，
- * 因此本模組只「回報衝突」，不阻擋指派。
+ * 主管點名牌換人時，依當前負擔由輕到重推薦可用的師傅。
+ * 規格 §1 明訂主管具 100% 強制覆寫權，因此本模組只「回報衝突」，不阻擋指派。
  */
 
 
 
-
 const CONFLICT = {
-  INACTIVE: 'INACTIVE',                 // 人員已停用
-  ABSENT: 'ABSENT',                     // 當日有公差 / 請假
-  DUPLICATE_SHIFT: 'DUPLICATE_SHIFT',   // 當日同時段已有其他點位
-  SAME_LOCATION: 'SAME_LOCATION',       // 當日已站過同一個點位
+  INACTIVE: 'INACTIVE',                   // 人員已停用
+  APPRENTICE: 'APPRENTICE',               // 徒弟尚未升級為師傅，不能排班
+  DUPLICATE_SHIFT: 'DUPLICATE_SHIFT',     // 同時段已有其他點位
+  SAME_LOCATION: 'SAME_LOCATION',         // 本週已站過同一個點位
   BLACKBOARD_DOUBLE: 'BLACKBOARD_DOUBLE', // 當日已有其他黑板任務
-  ALL_WEEK_HELD: 'ALL_WEEK_HELD',       // 已擔任全週職務
-  ALREADY_HERE: 'ALREADY_HERE',         // 已在同一點位
-  APPRENTICE: 'APPRENTICE',             // 徒弟尚未升級為師傅，不能排班
+  ALL_WEEK_HELD: 'ALL_WEEK_HELD',         // 已擔任全週職務
+  ALREADY_HERE: 'ALREADY_HERE',           // 已在同一點位
 };
 
 const CONFLICT_LABEL = {
   [CONFLICT.INACTIVE]: '人員已停用',
-  [CONFLICT.ABSENT]: '當日有公差／請假',
-  [CONFLICT.DUPLICATE_SHIFT]: '當日同時段已有點位',
-  [CONFLICT.SAME_LOCATION]: '當日已站過同一點位',
+  [CONFLICT.APPRENTICE]: '徒弟，尚未升級為師傅',
+  [CONFLICT.DUPLICATE_SHIFT]: '同時段已有點位',
+  [CONFLICT.SAME_LOCATION]: '本週已站過同一點位',
   [CONFLICT.BLACKBOARD_DOUBLE]: '當日已有其他黑板任務',
   [CONFLICT.ALL_WEEK_HELD]: '已擔任全週職務',
   [CONFLICT.ALREADY_HERE]: '已在同一點位',
-  [CONFLICT.APPRENTICE]: '徒弟，尚未升級為師傅',
 };
 
 function shiftOf(item) {
   if (!item) return null;
+  if (item.board_type === BOARD.SPECIAL) return SHIFT.SPECIAL;
   if (item.board_type === BOARD.WHITEBOARD) return item.shift_type;
   return item.shift_type === SHIFT.ALL_WEEK ? SHIFT.ALL_WEEK : SHIFT.DAILY;
 }
@@ -1385,17 +1385,18 @@ function shiftOf(item) {
  */
 function buildBoardIndex(rows, itemsById) {
   const index = {
-    onShift: new Map(),       // `${shift}:${day}` -> Set<staffId>
-    spots: new Map(),         // day -> Map<staffId, Set<item_name>>
+    weeklyShift: new Map(),     // shift -> Set<staffId>，依週指派的時段
+    weeklySpots: new Map(),     // staffId -> Set<item_name>，本週站過的白板點位
+    flagByDay: new Map(),       // day -> Set<staffId>
     blackboardDaily: new Map(), // day -> Map<staffId, Set<item_id>>
-    allWeek: new Map(),       // staffId -> Set<item_id>
-    occupancy: new Map(),     // item_id -> Map<day|'ALL', Set<staffId>>
-    weekAssigned: new Map(),  // staffId -> 本週被指派次數
+    allWeek: new Map(),         // staffId -> Set<item_id>
+    occupancy: new Map(),       // item_id -> Map<day|'ALL', Set<staffId>>
+    weekAssigned: new Map(),    // staffId -> 本週被指派次數
   };
+  for (const shift of WEEKLY_SHIFTS) index.weeklyShift.set(shift, new Set());
   for (const d of WEEK_DAYS) {
-    index.spots.set(d, new Map());
+    index.flagByDay.set(d, new Set());
     index.blackboardDaily.set(d, new Map());
-    for (const shift of WHITEBOARD_SHIFTS) index.onShift.set(`${shift}:${d}`, new Set());
   }
 
   const push = (map, key, value) => {
@@ -1405,7 +1406,6 @@ function buildBoardIndex(rows, itemsById) {
 
   for (const row of rows) {
     if (row.staff_id == null) continue;
-
     const item = itemsById.get(row.item_id);
     if (!item) continue;
 
@@ -1416,9 +1416,11 @@ function buildBoardIndex(rows, itemsById) {
     push(index.occupancy.get(row.item_id), dayKey, row.staff_id);
 
     const shift = shiftOf(item);
-    if (WHITEBOARD_SHIFTS.includes(shift)) {
-      index.onShift.get(`${shift}:${row.day_of_week}`)?.add(row.staff_id);
-      push(index.spots.get(row.day_of_week), row.staff_id, item.item_name);
+    if (WEEKLY_SHIFTS.includes(shift)) {
+      index.weeklyShift.get(shift).add(row.staff_id);
+      push(index.weeklySpots, row.staff_id, item.item_name);
+    } else if (shift === SHIFT.FLAG) {
+      index.flagByDay.get(row.day_of_week)?.add(row.staff_id);
     } else if (shift === SHIFT.DAILY) {
       push(index.blackboardDaily.get(row.day_of_week), row.staff_id, item.item_id);
     } else if (shift === SHIFT.ALL_WEEK) {
@@ -1429,44 +1431,30 @@ function buildBoardIndex(rows, itemsById) {
   return index;
 }
 
-function absentDays(absences, weekStartDate) {
-  const set = new Set();
-  for (const a of absences ?? []) {
-    const day = a.day_of_week ?? dayOfWeekFor(weekStartDate, a.absence_date);
-    if (day) set.add(`${a.staff_id}:${day}`);
-  }
-  return set;
-}
-
 /**
  * 檢查把 candidate 放進 targetItem/targetDay 會踩到哪些限制。
  * @returns {string[]} 衝突代碼陣列（空陣列代表完全合規）
  */
-function checkConflicts({
-  candidate, targetItem, targetDay, index, absentSet,
-}) {
+function checkConflicts({ candidate, targetItem, targetDay, index }) {
   const conflicts = [];
   const id = candidate.staff_id;
 
   if (!candidate.is_active) conflicts.push(CONFLICT.INACTIVE);
   if (candidate.role !== ROLE.MASTER) conflicts.push(CONFLICT.APPRENTICE);
-  if (targetDay && absentSet.has(`${id}:${targetDay}`)) conflicts.push(CONFLICT.ABSENT);
-  if (!targetDay && WEEK_DAYS.some((d) => absentSet.has(`${id}:${d}`))) conflicts.push(CONFLICT.ABSENT);
 
   const occupants = index.occupancy.get(targetItem.item_id)?.get(targetDay ?? 'ALL');
-  if (occupants?.has(id)) conflicts.push(CONFLICT.ALREADY_HERE);
+  const alreadyHere = Boolean(occupants?.has(id));
+  if (alreadyHere) conflicts.push(CONFLICT.ALREADY_HERE);
 
   const shift = shiftOf(targetItem);
-  if (WHITEBOARD_SHIFTS.includes(shift)) {
-    // 同一時段當日已有別的點位
-    if (index.onShift.get(`${shift}:${targetDay}`)?.has(id) && !occupants?.has(id)) {
-      conflicts.push(CONFLICT.DUPLICATE_SHIFT);
-    }
-    // 當日已站過同名點位（跨時段也算）
-    const mySpots = index.spots.get(targetDay)?.get(id);
-    if (mySpots?.has(targetItem.item_name) && !occupants?.has(id)) {
+  if (WEEKLY_SHIFTS.includes(shift)) {
+    // 依週指派：同一時段本週只站一個點位，且不重複站同名地點
+    if (!alreadyHere && index.weeklyShift.get(shift)?.has(id)) conflicts.push(CONFLICT.DUPLICATE_SHIFT);
+    if (!alreadyHere && index.weeklySpots.get(id)?.has(targetItem.item_name)) {
       conflicts.push(CONFLICT.SAME_LOCATION);
     }
+  } else if (shift === SHIFT.FLAG) {
+    if (!alreadyHere && index.flagByDay.get(targetDay)?.has(id)) conflicts.push(CONFLICT.DUPLICATE_SHIFT);
   } else if (shift === SHIFT.DAILY) {
     const mine = index.blackboardDaily.get(targetDay)?.get(id);
     if (mine && [...mine].some((itemId) => itemId !== targetItem.item_id)) conflicts.push(CONFLICT.BLACKBOARD_DOUBLE);
@@ -1484,38 +1472,35 @@ function dimensionOf(item) {
     case SHIFT.MORNING: return DIMENSION.MORNING;
     case SHIFT.FLAG: return DIMENSION.FLAG;
     case SHIFT.NOON: return DIMENSION.NOON;
+    case SHIFT.SPECIAL: return DIMENSION.SPECIAL;
     default: return DIMENSION.BLACKBOARD;
   }
 }
 
 /**
- * Plan X 補位推薦。
+ * 換人推薦。
  *
- * 排序：無衝突優先 → 該維度歷史次數少者優先
- *      → 本週指派次數少者優先 → staff_id。
+ * 排序：無衝突者優先 → 該維度歷史次數少者 → 本週已排次數少者 → staff_id。
  *
  * @returns {Array<{staff_id, name, conflicts, historyCount, weekAssigned}>}
  */
 function recommendReplacements({
   staff, targetItem, targetDay, rows, itemsById, stats = new Map(),
-  absences = [], weekStartDate, excludeStaffId = null, limit = 8,
+  excludeStaffId = null, limit = 8,
 }) {
   const index = buildBoardIndex(rows, itemsById);
-  const absentSet = absentDays(absences, weekStartDate);
-  const dimension = dimensionOf(targetItem);
-  const statKey = DIMENSION_COLUMN[dimension];
+  const statKey = DIMENSION_COLUMN[dimensionOf(targetItem)];
 
   const scored = staff
     .filter((s) => s.staff_id !== excludeStaffId)
     .map((s) => {
-      const conflicts = checkConflicts({ candidate: s, targetItem, targetDay, index, absentSet });
       const stat = stats.get(s.staff_id) ?? {};
       return {
         staff_id: s.staff_id,
         name: s.name,
         staff_group: s.staff_group,
         role: s.role,
-        conflicts,
+        conflicts: checkConflicts({ candidate: s, targetItem, targetDay, index }),
         historyCount: stat[statKey] ?? 0,
         weekAssigned: index.weekAssigned.get(s.staff_id) ?? 0,
       };
@@ -1548,8 +1533,8 @@ const STATE = {
   staff: [],
   items: [],
   fairness: {},          // staff_id -> 累計次數
-  weeks: {},             // 'YYYY-MM-DD' -> { status, rows, absences, ledger, ... }
-  nextIds: { staff: 1, item: 1, detail: 1, absence: 1 },
+  weeks: {},             // 'YYYY-MM-DD' -> { status, flag_days, rows, ledger, ... }
+  nextIds: { staff: 1, item: 1, detail: 1 },
 };
 
 let remoteDb = null;     // claude.use('db') 的結果，null 代表只能用本機
@@ -1612,7 +1597,7 @@ async function initStore() {
     STATE.staff = config.staff ?? [];
     STATE.items = config.items ?? [];
     STATE.fairness = config.fairness ?? {};
-    STATE.nextIds = { staff: 1, item: 1, detail: 1, absence: 1, ...(config.nextIds ?? {}) };
+    STATE.nextIds = { staff: 1, item: 1, detail: 1, ...(config.nextIds ?? {}) };
     return { synced: Boolean(remoteDb), seeded: false };
   }
 
@@ -1624,7 +1609,6 @@ async function initStore() {
       staff: Math.max(0, ...STATE.staff.map((s) => s.staff_id)) + 1,
       item: Math.max(0, ...STATE.items.map((i) => i.item_id)) + 1,
       detail: 1,
-      absence: 1,
     };
     await saveConfig();
     return { synced: Boolean(remoteDb), seeded: true };
@@ -1659,6 +1643,7 @@ function blankStat() {
     morning_whiteboard_count: 0,
     flag_whiteboard_count: 0,
     noon_whiteboard_count: 0,
+    special_count: 0,
   };
 }
 
@@ -1695,10 +1680,13 @@ function ensureWeek(week) {
   if (!STATE.weeks[week]) {
     STATE.weeks[week] = {
       week_start_date: week, status: 'DRAFT', generated_at: null, published_at: null,
-      rows: [], absences: [], ledger: {},
+      flag_days: [], rows: [], ledger: {},
     };
   }
-  return STATE.weeks[week];
+  const data = STATE.weeks[week];
+  // 舊備份沒有這個欄位；補上才不會在讀取時炸掉
+  if (!Array.isArray(data.flag_days)) data.flag_days = [];
+  return data;
 }
 
 const findRow = (week, detailId) => ensureWeek(week).rows.find((r) => r.detail_id === detailId) ?? null;
@@ -1742,12 +1730,10 @@ async function importAll(data) {
   // 沿用備份裡的最大編號往下發，避免與既有資料撞號
   const maxOf = (list, key) => Math.max(0, ...list.map((x) => x[key] ?? 0));
   const allRows = Object.values(STATE.weeks).flatMap((w) => w.rows ?? []);
-  const allAbsences = Object.values(STATE.weeks).flatMap((w) => w.absences ?? []);
   STATE.nextIds = {
     staff: maxOf(STATE.staff, 'staff_id') + 1,
     item: maxOf(STATE.items, 'item_id') + 1,
     detail: maxOf(allRows, 'detail_id') + 1,
-    absence: maxOf(allAbsences, 'absence_id') + 1,
   };
 
   loadedWeeks = new Set(Object.keys(STATE.weeks));
@@ -1765,46 +1751,75 @@ async function importAll(data) {
 
 const nowIso = () => new Date().toISOString();
 
-const weekRange = (week) => ({ from: week, to: dateForDay(week, 5) });
+const isSpecial = (row) => STATE.items.find((i) => i.item_id === row.item_id)?.board_type === BOARD.SPECIAL;
 
-function absencesForWeek(week) {
-  const { from, to } = weekRange(week);
-  const names = new Map(STATE.staff.map((s) => [s.staff_id, s]));
-  return ensureWeek(week).absences
-    .filter((a) => a.absence_date >= from && a.absence_date <= to)
-    .sort((a, b) => a.absence_date.localeCompare(b.absence_date) || a.staff_id - b.staff_id)
-    .map((a) => ({
-      ...a,
-      name: names.get(a.staff_id)?.name ?? '（已刪除）',
-      staff_group: names.get(a.staff_id)?.staff_group ?? '',
-      role: names.get(a.staff_id)?.role ?? 'APPRENTICE',
-      day_of_week: dayOfWeekFor(week, a.absence_date),
-    }));
-}
-
-/** 一鍵自動排班。重新生成會整批覆蓋該週明細，含手動調整過的部分。 */
+/**
+ * 一鍵自動排班。
+ * 只重建自動排的部分；主管手動指派的公差會原封保留。
+ */
 function generate(week) {
   const data = ensureWeek(week);
   const plan = generateWeeklyPlan({
     staff: sortedStaff(),
     items: sortedItems(),
     stats: new Map(listFairness().map((f) => [f.staff_id, f])),
-    absences: absencesForWeek(week),
     weekStartDate: week,
+    flagDays: data.flag_days ?? [],
   });
 
-  data.rows = plan.assignments.map((a) => ({
+  const kept = data.rows.filter(isSpecial);
+  data.rows = [...kept, ...plan.assignments.map((a) => ({
     detail_id: nextId('detail'),
     staff_id: a.staff_id ?? null,
     item_id: a.item_id ?? null,
     day_of_week: a.day_of_week ?? null,
     is_override: false,
     slot_index: a.slot_index ?? 0,
-  }));
+    note: null,
+  }))];
   data.generated_at = nowIso();
   settleFairness(week);
 
   return { ...getWeekView(week), generationWarnings: plan.warnings };
+}
+
+/** 設定本週的升旗日。改完要重新排班才會生效。 */
+function setFlagDays(week, days) {
+  const data = ensureWeek(week);
+  data.flag_days = [...new Set(days.map(Number))].filter((d) => WEEK_DAYS.includes(d)).sort();
+  return getWeekView(week);
+}
+
+/** 公差：主管手動把某個特殊任務指派給某人。 */
+function assignSpecial(week, { staffId, itemId, dayOfWeek = null, note = null }) {
+  const data = ensureWeek(week);
+
+  const item = STATE.items.find((i) => i.item_id === itemId);
+  if (!item) throw new Error('任務不存在');
+  if (item.board_type !== BOARD.SPECIAL) throw new Error('這不是公差任務');
+  if (!STATE.staff.some((s) => s.staff_id === staffId)) throw new Error('人員不存在');
+  if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) throw new Error('日期需為週一至週五或整週');
+
+  data.rows.push({
+    detail_id: nextId('detail'),
+    staff_id: staffId,
+    item_id: itemId,
+    day_of_week: dayOfWeek,
+    is_override: true,
+    slot_index: data.rows.filter((r) => r.item_id === itemId && r.day_of_week === dayOfWeek).length,
+    note,
+  });
+  settleFairness(week);
+  return getWeekView(week);
+}
+
+function removeSpecial(detailId) {
+  const found = locateRow(detailId);
+  if (!found) throw new Error('班表明細不存在');
+  const data = ensureWeek(found.week);
+  data.rows = data.rows.filter((r) => r.detail_id !== detailId);
+  settleFairness(found.week);
+  return getWeekView(found.week);
 }
 
 /**
@@ -1839,7 +1854,8 @@ function settleFairness(week) {
 
     const item = items.get(row.item_id);
     if (!item) continue;
-    if (item.board_type === BOARD.BLACKBOARD) bump('blackboard_count');
+    if (item.board_type === BOARD.SPECIAL) bump('special_count');
+    else if (item.board_type === BOARD.BLACKBOARD) bump('blackboard_count');
     else if (FIELD[item.shift_type]) bump(FIELD[item.shift_type]);
   }
 
@@ -1880,15 +1896,11 @@ function overrideAssignment(detailId, staffId) {
     const targetItem = items.get(row.item_id);
     if (targetItem) {
       const others = ensureWeek(week).rows.filter((r) => r.detail_id !== detailId);
-      const absentSet = new Set(
-        absencesForWeek(week).filter((a) => a.day_of_week).map((a) => `${a.staff_id}:${a.day_of_week}`),
-      );
       conflicts = checkConflicts({
         candidate: person,
         targetItem,
         targetDay: row.day_of_week,
         index: buildBoardIndex(others, items),
-        absentSet,
       });
     }
   }
@@ -1935,8 +1947,6 @@ function planXRecommendations(detailId, { limit = 8 } = {}) {
     rows: ensureWeek(week).rows.filter((r) => r.detail_id !== detailId),
     itemsById: items,
     stats: new Map(listFairness().map((f) => [f.staff_id, f])),
-    absences: absencesForWeek(week),
-    weekStartDate: week,
     excludeStaffId: row.staff_id,
     limit,
   });
@@ -1953,22 +1963,29 @@ function planXRecommendations(detailId, { limit = 8 } = {}) {
   };
 }
 
-/**
- * 供需摘要：每人每個時段只能站一個點位，
- * 因此單一時段的名額總數不能超過可排班的師傅數。
- */
+/** 供需摘要：白板依週指派，所以上限是「點位數 ≤ 可排班師傅數」。 */
 function buildCapacitySummary(items) {
   const masters = countMasters();
-  const demandOf = (shift) => items
-    .filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift)
-    .reduce((sum, i) => sum + i.required_capacity, 0);
+  const pointsOf = (shift) => items
+    .filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift);
+  const describe = (shift, label, weekly) => {
+    const list = pointsOf(shift);
+    return {
+      shift_type: shift,
+      label,
+      weekly,
+      points: list.length,
+      // 一個點位可以設定站好幾個人，名額數才是真正要動用的人數
+      slots: list.reduce((sum, i) => sum + Math.max(1, i.required_capacity ?? 1), 0),
+    };
+  };
 
-  const shifts = WHITEBOARD_SHIFTS.map((shift) => ({
-    shift_type: shift,
-    label: SHIFT_LABEL[shift] ?? shift,
-    slots: demandOf(shift),
-    points: items.filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift).length,
-  }));
+  const shifts = [
+    describe(SHIFT.MORNING, '早修', true),
+    describe(SHIFT.NOON, '午休', true),
+    describe(SHIFT.FLAG, '升旗', false),
+  ];
+
   const peak = Math.max(0, ...shifts.map((s) => s.slots));
 
   return {
@@ -2005,6 +2022,7 @@ function getWeekView(week) {
       status: data.status,
       generated_at: data.generated_at,
       published_at: data.published_at,
+      flag_days: [...(data.flag_days ?? [])],
       dates,
       has_items: data.rows.length > 0,
     },
@@ -2012,7 +2030,6 @@ function getWeekView(week) {
     groups: listGroups(),
     items,
     assignments: data.rows.map(clone),
-    absences: absencesForWeek(week),
     fairness: listFairness(),
     published_weeks: countPublishedWeeks(),
     capacity: buildCapacitySummary(items),
@@ -2098,36 +2115,40 @@ async function api(path, { method = 'GET', body } = {}) {
     return view;
   }
 
-  /* ---- 公差 / 請假 ---- */
-  if (head === 'absences' && method === 'POST') {
-    if (!isIsoDate(body.absence_date)) bad('日期格式需為 YYYY-MM-DD');
-    const type = body.absence_type ?? 'OFFICIAL';
-    if (!['OFFICIAL', 'LEAVE'].includes(type)) bad('類型需為公差或請假');
-
-    const week = mondayOf(body.absence_date);
+  /* ---- 公差（隊裡的特殊任務，主管手動指派） ---- */
+  if (head === 'specials' && rest.length === 0 && method === 'POST') {
+    const week = requireWeek(body?.week);
     await ensureWeekLoaded(week);
-    const data = ensureWeek(week);
-    const staffId = Number(body.staff_id);
+    const dayOfWeek = body.day_of_week === null || body.day_of_week === undefined
+      ? null
+      : Number(body.day_of_week);
+    if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) bad('日期需為週一至週五或整週');
 
-    const existing = data.absences.find((a) => a.staff_id === staffId && a.absence_date === body.absence_date);
-    if (existing) Object.assign(existing, { absence_type: type, note: body.note ?? null });
-    else {
-      data.absences.push({
-        absence_id: nextId('absence'), staff_id: staffId,
-        absence_date: body.absence_date, absence_type: type, note: body.note ?? null,
-      });
-    }
-    await saveWeek(week);
-    return getWeekView(week);
+    const view = assignSpecial(week, {
+      staffId: Number(body.staff_id),
+      itemId: Number(body.item_id),
+      dayOfWeek,
+      note: String(body.note ?? '').trim() || null,
+    });
+    await Promise.all([saveWeek(week), saveConfig()]);
+    return view;
   }
 
-  if (head === 'absences' && method === 'DELETE') {
-    const week = requireWeek(query.get('week'));
+  if (head === 'specials' && method === 'DELETE') {
+    const view = removeSpecial(Number(rest[0]));
+    await Promise.all([saveWeek(view.schedule.week_start_date), saveConfig()]);
+    return view;
+  }
+
+  /* ---- 升旗日 ---- */
+  if (head === 'week' && rest[0] === 'flag-days' && method === 'POST') {
+    const week = requireWeek(body?.week);
     await ensureWeekLoaded(week);
-    const data = ensureWeek(week);
-    data.absences = data.absences.filter((a) => a.absence_id !== Number(rest[0]));
+    const days = Array.isArray(body.days) ? body.days.map(Number) : [];
+    for (const d of days) if (!WEEK_DAYS.includes(d)) bad('升旗日需為週一至週五');
+    const view = setFlagDays(week, days);
     await saveWeek(week);
-    return getWeekView(week);
+    return view;
   }
 
   /* ---- 備份 ---- */
@@ -2147,6 +2168,7 @@ async function api(path, { method = 'GET', body } = {}) {
     if (!Object.values(BOARD).includes(boardType)) bad('板別不正確');
     if (boardType === BOARD.WHITEBOARD && !WHITEBOARD_SHIFTS.includes(shiftType)) bad('白板時段需為早修／升旗／午休');
     if (boardType === BOARD.BLACKBOARD && ![SHIFT.ALL_WEEK, SHIFT.DAILY].includes(shiftType)) bad('黑板時段不正確');
+    if (boardType === BOARD.SPECIAL && shiftType !== SHIFT.SPECIAL) bad('公差的時段需為 SPECIAL');
 
     const capacity = Number(body.required_capacity ?? 1);
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) bad('人數需介於 1~20');
@@ -2262,12 +2284,15 @@ async function api(path, { method = 'GET', body } = {}) {
     let vacated = 0;
     for (const [week, data] of Object.entries(STATE.weeks)) {
       let touched = false;
+      // 公差是指派給特定人的，人被刪掉就整列拿掉，不留空缺
+      const before = data.rows.length;
+      data.rows = data.rows.filter((r) => !(r.staff_id === staffId && isSpecial(r)));
+      if (data.rows.length !== before) { vacated += before - data.rows.length; touched = true; }
+
       for (const row of data.rows) {
         if (row.staff_id === staffId) { row.staff_id = null; vacated += 1; touched = true; }
       }
-      const before = data.absences.length;
-      data.absences = data.absences.filter((a) => a.staff_id !== staffId);
-      if (touched || data.absences.length !== before) await saveWeek(week);
+      if (touched) await saveWeek(week);
     }
     STATE.staff = STATE.staff.filter((s) => s.staff_id !== staffId);
     delete STATE.fairness[staffId];
@@ -2288,22 +2313,20 @@ async function api(path, { method = 'GET', body } = {}) {
 const RING_R = 32;
 const RING_C = 2 * Math.PI * RING_R;
 const DAY_NAMES = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五' };
-const SHIFT_COLOR = { MORNING: 'var(--emerald)', FLAG: 'var(--topaz)', NOON: 'var(--amethyst)' };
 /** 公平性維度 → 欄位、標籤、顏色、長條樣式 */
 const DIMENSIONS = [
   { key: 'blackboard_count', label: '黑板', color: 'var(--sapphire)', bar: 'bar--bb' },
   { key: 'morning_whiteboard_count', label: '早修', color: 'var(--emerald)', bar: 'bar--am' },
   { key: 'flag_whiteboard_count', label: '升旗', color: 'var(--topaz)', bar: 'bar--fl' },
   { key: 'noon_whiteboard_count', label: '午休', color: 'var(--amethyst)', bar: 'bar--pm' },
+  { key: 'special_count', label: '公差', color: 'var(--ruby)', bar: 'bar--sp' },
 ];
 const DRAG_THRESHOLD = 8;
-const LONG_PRESS_MS = 180;
 
 const state = {
   week: null,
   data: null,
   tab: 'blackboard',
-  day: 1,
   shift: 'MORNING',
   itemsById: new Map(),
   staffById: new Map(),
@@ -2370,14 +2393,21 @@ const slotsOf = (itemId, day) => state.data.assignments
 
 const staffName = (id) => state.staffById.get(id)?.name ?? '未指派';
 
-const absencesOn = (day) => state.data.absences.filter((a) => a.day_of_week === day);
+const itemOf = (row) => state.itemsById.get(row.item_id) ?? null;
 
-const isAbsent = (staffId, day) => state.data.absences
-  .some((a) => a.staff_id === staffId && a.day_of_week === day);
+/** 本週所有公差指派，依任務、日期排序。 */
+const specialRows = () => state.data.assignments
+  .filter((r) => itemOf(r)?.board_type === 'SPECIAL')
+  .sort((a, b) => a.item_id - b.item_id
+    || (a.day_of_week ?? 9) - (b.day_of_week ?? 9)
+    || a.detail_id - b.detail_id);
+
+/** 某人本週的公差次數，指派時用來看誰輪得少。 */
+const specialCountOf = (staffId) => specialRows().filter((r) => r.staff_id === staffId).length;
 
 /* ---------- 名牌 chip ---------- */
 
-function tagEl(row, boardKind, day) {
+function tagEl(row, boardKind) {
   const node = el('button', 'tag');
   node.type = 'button';
   node.dataset.detailId = String(row.detail_id);
@@ -2393,37 +2423,11 @@ function tagEl(row, boardKind, day) {
   const name = staffName(row.staff_id);
   node.append(el('span', null, name));
   if (row.is_override) node.classList.add('tag--override');
-  if (day && isAbsent(row.staff_id, day)) {
-    node.classList.add('tag--absent');
-    node.title = '該員當日有公差／請假';
-  }
   const group = state.staffById.get(row.staff_id)?.staff_group;
   node.setAttribute('aria-label', `${name}${group ? `（${group}）` : ''}，點選以換人`);
   return node;
 }
 
-/* ---------- 星期條 ---------- */
-
-function renderDayStrip() {
-  const strip = $('#dayStrip');
-  strip.replaceChildren();
-  const today = todayIso();
-
-  for (const day of [1, 2, 3, 4, 5]) {
-    const date = state.data.schedule.dates[day];
-    const chip = el('button', 'daychip');
-    chip.type = 'button';
-    chip.setAttribute('aria-pressed', String(day === state.day));
-    if (date === today) chip.dataset.today = '1';
-    chip.append(el('span', 'daychip__d', `週${DAY_NAMES[day]}`));
-    chip.append(el('span', 'daychip__n mono', shortDate(date)));
-    chip.setAttribute('aria-label', `週${DAY_NAMES[day]} ${date}`);
-    chip.addEventListener('click', () => { state.day = day; render(); });
-    strip.append(chip);
-  }
-  // 只有白板需要選日；黑板已是整週表格，公差與統計跟單日無關
-  strip.hidden = state.tab !== 'whiteboard';
-}
 
 
 /* ---------- 表格 ---------- */
@@ -2443,12 +2447,62 @@ function captionRow(title, meta) {
 }
 
 /** 一格名牌；沒有名額時顯示灰底破折號。 */
-function slotCell(slots, index, boardKind, day) {
+function slotCell(slots, index, boardKind) {
   const cell = el('td');
   const slot = slots[index];
   if (!slot) { cell.append(el('span', 'cell-text', '—')); return cell; }
-  cell.append(tagEl(slot, boardKind, day));
+  cell.append(tagEl(slot, boardKind));
   return cell;
+}
+
+/** 一格放同一點位的所有名牌（點位設定成多人時才會超過一個）。 */
+function tagsCell(slots, boardKind) {
+  const cell = el('td');
+  if (slots.length === 0) { cell.append(el('span', 'cell-text', '—')); return cell; }
+  const stack = el('div', 'cell-tags');
+  for (const slot of slots) stack.append(tagEl(slot, boardKind));
+  cell.append(stack);
+  return cell;
+}
+
+/**
+ * 白板點位表：點位｜人員｜點位｜人員。
+ * 左半欄放前半段點位，右半欄接著放後半段，照實體白板的兩欄寫法。
+ */
+function pairTable(items, day, boardKind) {
+  const { wrap, table: node } = table('sched--pair4');
+
+  const thead = el('thead');
+  const headRow = el('tr');
+  for (const label of ['點位', '人員', '點位', '人員']) {
+    const th = el('th', null, label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  node.append(thead);
+
+  const half = Math.ceil(items.length / 2);
+  const tbody = el('tbody');
+
+  for (let i = 0; i < half; i += 1) {
+    const row = el('tr');
+    for (const item of [items[i], items[i + half]]) {
+      if (!item) {
+        const blank = el('th');
+        blank.scope = 'row';
+        row.append(blank, el('td'));
+        continue;
+      }
+      const label = el('th', null, item.item_name);
+      label.scope = 'row';
+      row.append(label, tagsCell(slotsOf(item.item_id, day), boardKind));
+    }
+    tbody.append(row);
+  }
+
+  node.append(tbody);
+  return wrap;
 }
 
 /* ---------- 視圖：黑板 ---------- */
@@ -2491,7 +2545,7 @@ function renderBlackboard() {
       label.scope = 'row';
       row.append(label);
       for (const day of [1, 2, 3, 4, 5]) {
-        row.append(slotCell(slotsOf(item.item_id, day), 0, 'BLACKBOARD', day));
+        row.append(slotCell(slotsOf(item.item_id, day), 0, 'BLACKBOARD'));
       }
       tbody.append(row);
     }
@@ -2510,17 +2564,13 @@ function renderBlackboard() {
       const row = el('tr');
       const label = el('th', null, item.item_name);
       label.scope = 'row';
-      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD', null));
+      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD'));
       tbody.append(row);
     }
     node.append(tbody);
     view.append(wrap);
   }
 
-  const away = state.data.absences;
-  if (away.length) {
-    view.append(noticeEl(`本週公差／請假：${away.map((a) => `${a.name}（週${DAY_NAMES[a.day_of_week] ?? '—'}）`).join('、')}`, 'topaz'));
-  }
 }
 
 /* ---------- 視圖：白板 ---------- */
@@ -2545,78 +2595,100 @@ function renderWhiteboard() {
   }
   view.append(seg);
 
+  if (state.shift === 'FLAG') { renderFlagBoard(view); return; }
+
+  // 早修與午休是依週指派：一個點位整週同一人，一週洗牌一次
   const items = itemsOf('WHITEBOARD', state.shift);
-  const daySlots = items.flatMap((i) => slotsOf(i.item_id, state.day));
-  const filled = daySlots.filter((s) => s.staff_id != null).length;
+  const slots = items.flatMap((i) => slotsOf(i.item_id, null));
+  const filled = slots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
-  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 週${DAY_NAMES[state.day]}`, `${filled}/${total} 名額`));
+  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 整週`, `${filled}/${total} 名額 · 一週一輪`));
+  view.append(pairTable(items, null, state.shift));
+  view.append(el('p', 'field__hint', '這個時段整週固定同一人，週一到週五都一樣；要換人點名牌即可。'));
+}
 
-  const { wrap, table: node } = table();
-  const thead = el('thead');
-  const headRow = el('tr');
-  for (const label of ['點位', '人員']) {
-    const th = el('th', null, label);
-    th.scope = 'col';
-    headRow.append(th);
+/** 升旗是事件，不是常態班：只有指定的升旗日才會把名牌排上去。 */
+function renderFlagBoard(view) {
+  const days = state.data.schedule.flag_days ?? [];
+
+  const card = el('div', 'card');
+  const head = el('div', 'card__title');
+  head.append(el('h3', null, '本週升旗日'));
+  head.append(badge(days.length ? `${days.length} 天` : '本週不升旗', days.length ? 'topaz' : 'emerald'));
+  card.append(head);
+  card.append(el('p', 'field__hint', '升旗一個月約三次。指定哪幾天升旗，重新排班後所有師傅的名牌才會排到升旗表上；沒指定就整塊空著。'));
+
+  const picker = el('div', 'daypick');
+  for (const day of [1, 2, 3, 4, 5]) {
+    const on = days.includes(day);
+    const chip = el('button', 'daypick__chip');
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(on));
+    chip.append(el('span', 'daypick__d', `週${DAY_NAMES[day]}`));
+    chip.append(el('span', 'daypick__n mono', shortDate(state.data.schedule.dates[day])));
+    chip.addEventListener('click', async () => {
+      const next = on ? days.filter((d) => d !== day) : [...days, day].sort();
+      absorb(await api('/api/week/flag-days', { method: 'POST', body: { week: state.week, days: next } }));
+      toast(state.data.schedule.has_items
+        ? '升旗日已更新，按閃電鈕重新排班才會排上名牌'
+        : '升旗日已設定');
+    });
+    picker.append(chip);
   }
-  thead.append(headRow);
-  node.append(thead);
+  card.append(picker);
+  view.append(card);
 
-  const tbody = el('tbody');
-  let currentZone = null;
-
-  for (const item of items) {
-    // 升旗底下分定點與巡查，用整列標題隔開
-    const zone = item.zone || '';
-    if (zone && zone !== currentZone) {
-      const zoneRow = el('tr', 'zone-row');
-      const th = el('th', null, zone);
-      th.colSpan = 2;
-      th.scope = 'colgroup';
-      zoneRow.append(th);
-      tbody.append(zoneRow);
-      currentZone = zone;
-    }
-
-    const slots = slotsOf(item.item_id, state.day);
-    // 一個點位排多人時，每人各佔一列，點位名用 rowspan 合併
-    for (let i = 0; i < Math.max(1, slots.length); i += 1) {
-      const row = el('tr');
-      if (i === 0) {
-        const label = el('th', null, item.item_name);
-        label.scope = 'row';
-        if (slots.length > 1) label.rowSpan = slots.length;
-        row.append(label);
-      }
-      row.append(slotCell(slots, i, state.shift, state.day));
-      tbody.append(row);
-    }
+  if (days.length === 0) {
+    view.append(noticeEl('本週沒有升旗，升旗表是空的。', 'topaz'));
+    return;
   }
 
-  node.append(tbody);
-  view.append(wrap);
+  const items = itemsOf('WHITEBOARD', 'FLAG');
+  const placed = days.some((d) => items.some((i) => slotsOf(i.item_id, d).length > 0));
+  if (!placed) {
+    view.append(noticeEl('已指定升旗日，但還沒把名牌排上去。按下方閃電鈕重新排班。', 'topaz'));
+  }
+
+  for (const day of days) {
+    view.append(captionRow(`升旗 · 週${DAY_NAMES[day]}`, shortDate(state.data.schedule.dates[day])));
+
+    // 定點與巡查各成一張表，跟實體白板一樣分區
+    const zones = new Map();
+    for (const item of items) {
+      const zone = item.zone || '定點';
+      if (!zones.has(zone)) zones.set(zone, []);
+      zones.get(zone).push(item);
+    }
+
+    for (const [zone, zoneItems] of zones) {
+      const zoneHead = el('p', 'zone-title', zone);
+      view.append(zoneHead, pairTable(zoneItems, day, 'FLAG'));
+    }
+  }
 }
 
 /* ---------- 視圖：公差 ---------- */
 
-function renderAbsence() {
-  const view = $('#view-absence');
+function renderSpecial() {
+  const view = $('#view-special');
   view.replaceChildren();
   view.classList.add('stagger');
 
-  // 公差／請假
-  view.append(captionRow('公差／請假', `${state.data.absences.length} 筆`));
+  const tasks = itemsOf('SPECIAL', 'SPECIAL');
+  const rows = specialRows();
 
-  if (state.data.absences.length === 0) {
+  view.append(captionRow('公差任務', `${tasks.length} 項 · 已指派 ${rows.length} 人次`));
+
+  if (tasks.length === 0) {
     const empty = el('div', 'card');
-    empty.append(el('p', 'field__hint', '本週尚無登錄紀錄。公差僅作行程提示，不計入公平性統計；排班時會自動避開登錄者當天。'));
+    empty.append(el('p', 'field__hint', '還沒有任何公差任務。到右上角設定裡的「點位」分頁，在「公差任務」底下建立隊裡的特殊任務。'));
     view.append(empty);
   } else {
-    const { wrap, table: node } = table();
+    const { wrap, table: node } = table('sched--special');
     const thead = el('thead');
     const headRow = el('tr');
-    for (const label of ['人員', '日期', '類型', '']) {
+    for (const label of ['任務', '人員', '時間', '']) {
       const th = el('th', null, label);
       th.scope = 'col';
       headRow.append(th);
@@ -2625,41 +2697,74 @@ function renderAbsence() {
     node.append(thead);
 
     const tbody = el('tbody');
-    for (const a of state.data.absences) {
-      const row = el('tr');
+    for (const task of tasks) {
+      const mine = rows.filter((r) => r.item_id === task.item_id);
 
-      const who = el('th', null, '');
-      who.scope = 'row';
-      who.append(document.createTextNode(a.name));
-      if (a.note) who.append(el('span', 'cell-sub', a.note));
-      row.append(who);
+      if (mine.length === 0) {
+        const row = el('tr');
+        const label = el('th', null, task.item_name);
+        label.scope = 'row';
+        row.append(label);
+        row.append(el('td', 'cell-text', '—'));
+        row.append(el('td', 'cell-text', '—'));
 
-      row.append(el('td', 'cell-text', `${shortDate(a.absence_date)}（${DAY_NAMES[a.day_of_week] ?? '—'}）`));
-      row.append(el('td', 'cell-text', a.absence_type === 'OFFICIAL' ? '公差' : '請假'));
+        const action = el('td', 'cell-action');
+        const add = el('button', 'iconbtn');
+        add.type = 'button';
+        add.setAttribute('aria-label', `指派「${task.item_name}」`);
+        add.append(icon('i-plus'));
+        add.addEventListener('click', () => openSpecialSheet(task.item_id));
+        action.append(add);
+        row.append(action);
 
-      const action = el('td', 'cell-action');
-      const del = el('button', 'iconbtn');
-      del.type = 'button';
-      del.setAttribute('aria-label', `刪除 ${a.name} 的紀錄`);
-      del.append(icon('i-trash'));
-      del.addEventListener('click', async () => {
-        absorb(await api(`/api/absences/${a.absence_id}?week=${state.week}`, { method: 'DELETE' }));
-        toast('已刪除紀錄');
+        tbody.append(row);
+        continue;
+      }
+
+      mine.forEach((assignment, index) => {
+        const row = el('tr');
+        if (index === 0) {
+          const label = el('th', null, task.item_name);
+          label.scope = 'row';
+          if (mine.length > 1) label.rowSpan = mine.length;
+          row.append(label);
+        }
+
+        const who = el('td');
+        who.append(tagEl(assignment, 'SPECIAL'));
+        if (assignment.note) who.append(el('span', 'cell-sub', assignment.note));
+        row.append(who);
+
+        row.append(el('td', 'cell-text', assignment.day_of_week
+          ? `週${DAY_NAMES[assignment.day_of_week]}`
+          : '整週'));
+
+        const action = el('td', 'cell-action');
+        const del = el('button', 'iconbtn');
+        del.type = 'button';
+        del.setAttribute('aria-label', `移除「${task.item_name}」的指派`);
+        del.append(icon('i-trash'));
+        del.addEventListener('click', async () => {
+          absorb(await api(`/api/specials/${assignment.detail_id}`, { method: 'DELETE' }));
+          toast('已移除公差指派');
+        });
+        action.append(del);
+        row.append(action);
+
+        tbody.append(row);
       });
-      action.append(del);
-      row.append(action);
-
-      tbody.append(row);
     }
     node.append(tbody);
     view.append(wrap);
-  }
 
-  const addBtn = el('button', 'btn btn--block btn--primary');
-  addBtn.type = 'button';
-  addBtn.append(icon('i-calendar'), el('span', null, '登錄公差／請假'));
-  addBtn.addEventListener('click', openAbsenceSheet);
-  view.append(addBtn);
+    const addBtn = el('button', 'btn btn--block btn--primary');
+    addBtn.type = 'button';
+    addBtn.append(icon('i-plus'), el('span', null, '指派公差'));
+    addBtn.addEventListener('click', () => openSpecialSheet(null));
+    view.append(addBtn);
+
+    view.append(el('p', 'field__hint', '公差是隊裡的特殊任務，由主管手動指派，會計入統計裡的公差次數。重新排班不會動到已指派的公差。'));
+  }
 
   // 待補名額
   const gaps = state.data.warnings;
@@ -2692,7 +2797,7 @@ function renderAbsence() {
     const label = el('th', null, g.item_name ?? '未知點位');
     label.scope = 'row';
     row.append(label);
-    row.append(el('td', 'cell-text', `${shiftName}・${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'}`));
+    row.append(el('td', 'cell-text', `${shiftName}・${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '整週'}`));
 
     const action = el('td', 'cell-action');
     const fill = el('button', 'iconbtn');
@@ -2861,7 +2966,7 @@ function rosterSection(title, rows, withLoad) {
     const nameWrap = el('div', 'person__name');
     nameWrap.append(document.createTextNode(r.name));
     if (withLoad) {
-      const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label} ${r[d.key]}`).join('・')}`;
+      const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label}${r[d.key]}`).join(' ')}`;
       nameWrap.append(el('span', null, sub));
     } else {
       nameWrap.append(el('span', null, `${r.staff_group}・點選可升級為師傅`));
@@ -3046,47 +3151,59 @@ async function assign(detailId, staffId) {
   }
 }
 
-/* ---------- 公差登錄 ---------- */
+/* ---------- 公差指派 ---------- */
 
-function openAbsenceSheet() {
-  openSheet('登錄公差／請假', '只列出師傅；登錄後重新排班會自動避開當天', (body) => {
+function openSpecialSheet(presetItemId) {
+  const tasks = itemsOf('SPECIAL', 'SPECIAL');
+  if (tasks.length === 0) {
+    toast('請先到設定裡新增公差任務', 'error');
+    return;
+  }
+
+  openSheet('指派公差', '公差計入統計，重新排班不會被覆蓋', (body) => {
+    const taskField = el('div', 'field');
+    const taskLabel = el('label', null, '任務');
+    taskLabel.setAttribute('for', 'spItem');
+    const taskSelect = el('select');
+    taskSelect.id = 'spItem';
+    for (const task of tasks) taskSelect.append(new Option(task.item_name, String(task.item_id)));
+    if (presetItemId != null) taskSelect.value = String(presetItemId);
+    taskField.append(taskLabel, taskSelect);
+
     const staffField = el('div', 'field');
     const staffLabel = el('label', null, '人員');
-    staffLabel.setAttribute('for', 'absStaff');
+    staffLabel.setAttribute('for', 'spStaff');
     const staffSelect = el('select');
-    staffSelect.id = 'absStaff';
-    // 徒弟不排班，登錄他們的公差沒有意義
-    for (const person of state.data.staff.filter((p) => p.is_active && p.role === 'MASTER')) {
-      staffSelect.append(new Option(person.name, String(person.staff_id)));
+    staffSelect.id = 'spStaff';
+    // 徒弟不排班，公差也只指派給師傅；依累計公差次數由少到多排，輪得少的排在前面
+    const pickable = state.data.fairness
+      .filter((f) => f.is_active && f.role === 'MASTER')
+      .sort((a, b) => a.special_count - b.special_count || a.staff_id - b.staff_id);
+    for (const person of pickable) {
+      const week = specialCountOf(person.staff_id);
+      staffSelect.append(new Option(
+        `${person.name}（累計 ${person.special_count} 次${week ? `・本週 ${week}` : ''}）`,
+        String(person.staff_id),
+      ));
     }
-    staffField.append(staffLabel, staffSelect);
+    staffField.append(staffLabel, staffSelect, el('span', 'field__hint', '依累計公差次數由少到多排序'));
 
-    const dateField = el('div', 'field');
-    const dateLabel = el('label', null, '日期');
-    dateLabel.setAttribute('for', 'absDate');
-    const dateInput = el('input');
-    dateInput.type = 'date';
-    dateInput.id = 'absDate';
-    dateInput.min = state.data.schedule.week_start_date;
-    dateInput.max = state.data.schedule.week_end_date;
-    dateInput.value = state.data.schedule.dates[state.day];
-    dateField.append(dateLabel, dateInput, el('span', 'field__hint', '限本週週一至週五'));
-
-    const typeField = el('div', 'field');
-    const typeLabel = el('label', null, '類型');
-    typeLabel.setAttribute('for', 'absType');
-    const typeSelect = el('select');
-    typeSelect.id = 'absType';
-    typeSelect.append(new Option('公差', 'OFFICIAL'), new Option('請假', 'LEAVE'));
-    typeField.append(typeLabel, typeSelect);
+    const dayField = el('div', 'field');
+    const dayLabel = el('label', null, '時間');
+    dayLabel.setAttribute('for', 'spDay');
+    const daySelect = el('select');
+    daySelect.id = 'spDay';
+    daySelect.append(new Option('整週', ''));
+    for (const day of [1, 2, 3, 4, 5]) daySelect.append(new Option(`週${DAY_NAMES[day]}`, String(day)));
+    dayField.append(dayLabel, daySelect);
 
     const noteField = el('div', 'field');
     const noteLabel = el('label', null, '備註');
-    noteLabel.setAttribute('for', 'absNote');
+    noteLabel.setAttribute('for', 'spNote');
     const noteInput = el('input');
     noteInput.type = 'text';
-    noteInput.id = 'absNote';
-    noteInput.placeholder = '例：校外研習';
+    noteInput.id = 'spNote';
+    noteInput.placeholder = '例：帶新生導覽';
     noteField.append(noteLabel, noteInput);
 
     const error = el('p', 'field__error');
@@ -3095,28 +3212,29 @@ function openAbsenceSheet() {
 
     const submit = el('button', 'btn btn--block btn--primary');
     submit.type = 'button';
-    submit.append(icon('i-check'), el('span', null, '登錄'));
+    submit.append(icon('i-check'), el('span', null, '指派'));
     submit.addEventListener('click', async () => {
-      if (!dateInput.value || dateInput.value < dateInput.min || dateInput.value > dateInput.max) {
-        error.textContent = '日期需落在本週週一至週五，請重新選擇。';
+      try {
+        absorb(await api('/api/specials', {
+          method: 'POST',
+          body: {
+            week: state.week,
+            staff_id: Number(staffSelect.value),
+            item_id: Number(taskSelect.value),
+            day_of_week: daySelect.value ? Number(daySelect.value) : null,
+            note: noteInput.value.trim() || null,
+          },
+        }));
+      } catch (e) {
+        error.textContent = e.message;
         error.hidden = false;
-        dateInput.focus();
         return;
       }
-      absorb(await api('/api/absences', {
-        method: 'POST',
-        body: {
-          staff_id: Number(staffSelect.value),
-          absence_date: dateInput.value,
-          absence_type: typeSelect.value,
-          note: noteInput.value.trim() || null,
-        },
-      }));
       closeSheet();
-      toast('已登錄，重新排班時會自動避開');
+      toast('已指派公差');
     });
 
-    body.append(staffField, dateField, typeField, noteField, error, submit);
+    body.append(taskField, staffField, dayField, noteField, error, submit);
   });
 }
 
@@ -3183,6 +3301,7 @@ const BOARD_SECTIONS = [
   { board: 'WHITEBOARD', shift: 'NOON', label: '白板・午休' },
   { board: 'BLACKBOARD', shift: 'ALL_WEEK', label: '黑板・全週職務' },
   { board: 'BLACKBOARD', shift: 'DAILY', label: '黑板・每日職務' },
+  { board: 'SPECIAL', shift: 'SPECIAL', label: '公差任務' },
 ];
 
 let adminTab = 'items';
@@ -3353,11 +3472,15 @@ function renderItemAdmin(body) {
   nameInput.placeholder = '例：育英樓 1F';
   nameField.append(nameLabel, nameInput);
 
-  const syncZone = () => {
-    zoneField.hidden = BOARD_SECTIONS[Number(sectionSelect.value)].shift !== 'FLAG';
+  const syncFields = () => {
+    const sec = BOARD_SECTIONS[Number(sectionSelect.value)];
+    zoneField.hidden = sec.shift !== 'FLAG';
+    // 公差是手動指派的，設幾個人沒有意義
+    capField.hidden = sec.board === 'SPECIAL';
+    nameInput.placeholder = sec.board === 'SPECIAL' ? '例：校慶佈置' : '例：育英樓 1F';
   };
-  sectionSelect.addEventListener('change', syncZone);
-  syncZone();
+  sectionSelect.addEventListener('change', syncFields);
+  syncFields();
 
   grid.append(sectionField, capField);
   form.append(grid, nameField, zoneField);
@@ -3771,7 +3894,6 @@ function renderChrome() {
 
 function render() {
   renderChrome();
-  renderDayStrip();
 
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.dataset.view !== state.tab;
@@ -3785,7 +3907,7 @@ function render() {
 
   if (state.tab === 'blackboard') renderBlackboard();
   else if (state.tab === 'whiteboard') renderWhiteboard();
-  else if (state.tab === 'absence') renderAbsence();
+  else if (state.tab === 'special') renderSpecial();
   else renderStats();
 }
 
@@ -3862,9 +3984,6 @@ async function boot() {
     const { synced } = await initStore();
     state.synced = synced;
     await loadWeek(todayIso());
-    const today = todayIso();
-    const found = Object.entries(state.data.schedule.dates).find(([, d]) => d === today);
-    if (found) state.day = Number(found[0]);
     render();
   } catch (error) {
     toast(error.message, 'error');

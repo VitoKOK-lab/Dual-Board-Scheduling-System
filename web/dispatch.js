@@ -75,36 +75,40 @@ async function api(path, { method = 'GET', body } = {}) {
     return view;
   }
 
-  /* ---- 公差 / 請假 ---- */
-  if (head === 'absences' && method === 'POST') {
-    if (!isIsoDate(body.absence_date)) bad('日期格式需為 YYYY-MM-DD');
-    const type = body.absence_type ?? 'OFFICIAL';
-    if (!['OFFICIAL', 'LEAVE'].includes(type)) bad('類型需為公差或請假');
-
-    const week = mondayOf(body.absence_date);
+  /* ---- 公差（隊裡的特殊任務，主管手動指派） ---- */
+  if (head === 'specials' && rest.length === 0 && method === 'POST') {
+    const week = requireWeek(body?.week);
     await ensureWeekLoaded(week);
-    const data = ensureWeek(week);
-    const staffId = Number(body.staff_id);
+    const dayOfWeek = body.day_of_week === null || body.day_of_week === undefined
+      ? null
+      : Number(body.day_of_week);
+    if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) bad('日期需為週一至週五或整週');
 
-    const existing = data.absences.find((a) => a.staff_id === staffId && a.absence_date === body.absence_date);
-    if (existing) Object.assign(existing, { absence_type: type, note: body.note ?? null });
-    else {
-      data.absences.push({
-        absence_id: nextId('absence'), staff_id: staffId,
-        absence_date: body.absence_date, absence_type: type, note: body.note ?? null,
-      });
-    }
-    await saveWeek(week);
-    return getWeekView(week);
+    const view = assignSpecial(week, {
+      staffId: Number(body.staff_id),
+      itemId: Number(body.item_id),
+      dayOfWeek,
+      note: String(body.note ?? '').trim() || null,
+    });
+    await Promise.all([saveWeek(week), saveConfig()]);
+    return view;
   }
 
-  if (head === 'absences' && method === 'DELETE') {
-    const week = requireWeek(query.get('week'));
+  if (head === 'specials' && method === 'DELETE') {
+    const view = removeSpecial(Number(rest[0]));
+    await Promise.all([saveWeek(view.schedule.week_start_date), saveConfig()]);
+    return view;
+  }
+
+  /* ---- 升旗日 ---- */
+  if (head === 'week' && rest[0] === 'flag-days' && method === 'POST') {
+    const week = requireWeek(body?.week);
     await ensureWeekLoaded(week);
-    const data = ensureWeek(week);
-    data.absences = data.absences.filter((a) => a.absence_id !== Number(rest[0]));
+    const days = Array.isArray(body.days) ? body.days.map(Number) : [];
+    for (const d of days) if (!WEEK_DAYS.includes(d)) bad('升旗日需為週一至週五');
+    const view = setFlagDays(week, days);
     await saveWeek(week);
-    return getWeekView(week);
+    return view;
   }
 
   /* ---- 備份 ---- */
@@ -124,6 +128,7 @@ async function api(path, { method = 'GET', body } = {}) {
     if (!Object.values(BOARD).includes(boardType)) bad('板別不正確');
     if (boardType === BOARD.WHITEBOARD && !WHITEBOARD_SHIFTS.includes(shiftType)) bad('白板時段需為早修／升旗／午休');
     if (boardType === BOARD.BLACKBOARD && ![SHIFT.ALL_WEEK, SHIFT.DAILY].includes(shiftType)) bad('黑板時段不正確');
+    if (boardType === BOARD.SPECIAL && shiftType !== SHIFT.SPECIAL) bad('公差的時段需為 SPECIAL');
 
     const capacity = Number(body.required_capacity ?? 1);
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) bad('人數需介於 1~20');
@@ -239,12 +244,15 @@ async function api(path, { method = 'GET', body } = {}) {
     let vacated = 0;
     for (const [week, data] of Object.entries(STATE.weeks)) {
       let touched = false;
+      // 公差是指派給特定人的，人被刪掉就整列拿掉，不留空缺
+      const before = data.rows.length;
+      data.rows = data.rows.filter((r) => !(r.staff_id === staffId && isSpecial(r)));
+      if (data.rows.length !== before) { vacated += before - data.rows.length; touched = true; }
+
       for (const row of data.rows) {
         if (row.staff_id === staffId) { row.staff_id = null; vacated += 1; touched = true; }
       }
-      const before = data.absences.length;
-      data.absences = data.absences.filter((a) => a.staff_id !== staffId);
-      if (touched || data.absences.length !== before) await saveWeek(week);
+      if (touched) await saveWeek(week);
     }
     STATE.staff = STATE.staff.filter((s) => s.staff_id !== staffId);
     delete STATE.fairness[staffId];

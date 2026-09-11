@@ -120,7 +120,8 @@ export function listFairness(db) {
             COALESCE(f.blackboard_count, 0)         AS blackboard_count,
             COALESCE(f.morning_whiteboard_count, 0) AS morning_whiteboard_count,
             COALESCE(f.flag_whiteboard_count, 0)    AS flag_whiteboard_count,
-            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count
+            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count,
+            COALESCE(f.special_count, 0)            AS special_count
        FROM staff s LEFT JOIN fairness_stats f ON f.staff_id = s.staff_id
       ORDER BY s.sort_order, s.staff_id`,
   ).all().map((r) => ({ ...r, is_active: !!r.is_active }));
@@ -153,7 +154,7 @@ export function createSchedule(db, weekStartDate) {
 export function listScheduleItems(db, scheduleId) {
   return db.prepare(
     `SELECT detail_id, schedule_id, staff_id, item_id, day_of_week,
-            is_override, slot_index
+            is_override, slot_index, note
        FROM schedule_items WHERE schedule_id = ?
       ORDER BY day_of_week, item_id, slot_index, detail_id`,
   ).all(scheduleId).map((r) => ({ ...r, is_override: !!r.is_override }));
@@ -165,12 +166,11 @@ export function findScheduleItem(db, detailId) {
   return { ...row, is_override: !!row.is_override };
 }
 
-export function replaceScheduleItems(db, scheduleId, assignments) {
-  db.prepare('DELETE FROM schedule_items WHERE schedule_id = ?').run(scheduleId);
+export function appendScheduleItems(db, scheduleId, assignments) {
   const insert = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const a of assignments) {
     insert.run(
@@ -180,8 +180,36 @@ export function replaceScheduleItems(db, scheduleId, assignments) {
       a.day_of_week ?? null,
       a.is_override ? 1 : 0,
       a.slot_index ?? 0,
+      a.note ?? null,
     );
   }
+}
+
+/** 新增一筆公差指派（主管手動）。 */
+export function createScheduleItem(db, scheduleId, { staffId, itemId, dayOfWeek = null, note = null }) {
+  const info = db.prepare(
+    `INSERT INTO schedule_items (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
+     VALUES (?, ?, ?, ?, 1, 0, ?)`,
+  ).run(scheduleId, staffId, itemId, dayOfWeek, note);
+  return Number(info.lastInsertRowid);
+}
+
+export function deleteScheduleItem(db, detailId) {
+  db.prepare('DELETE FROM schedule_items WHERE detail_id = ?').run(detailId);
+}
+
+/** 只刪掉自動排班會重建的列，保留主管手動指派的公差。 */
+export function deleteGeneratedItems(db, scheduleId) {
+  db.prepare(
+    `DELETE FROM schedule_items
+      WHERE schedule_id = ?
+        AND item_id IN (SELECT item_id FROM location_tasks WHERE board_type <> 'SPECIAL')`,
+  ).run(scheduleId);
+}
+
+export function setFlagDays(db, scheduleId, days) {
+  db.prepare('UPDATE weekly_schedules SET flag_days = ? WHERE schedule_id = ?')
+    .run(days.join(','), scheduleId);
 }
 
 export function updateScheduleItemStaff(db, detailId, staffId, { isOverride = true } = {}) {
@@ -189,27 +217,6 @@ export function updateScheduleItemStaff(db, detailId, staffId, { isOverride = tr
     .run(staffId ?? null, isOverride ? 1 : 0, detailId);
 }
 
-export function listAbsences(db, fromDate, toDate) {
-  return db.prepare(
-    `SELECT a.absence_id, a.staff_id, s.name, s.staff_group, s.role, a.absence_date, a.absence_type, a.note
-       FROM staff_absences a JOIN staff s ON s.staff_id = a.staff_id
-      WHERE a.absence_date BETWEEN ? AND ?
-      ORDER BY a.absence_date, a.staff_id`,
-  ).all(fromDate, toDate);
-}
-
-export function createAbsence(db, { staffId, absenceDate, absenceType = 'OFFICIAL', note = null }) {
-  db.prepare(
-    `INSERT INTO staff_absences (staff_id, absence_date, absence_type, note)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT (staff_id, absence_date)
-     DO UPDATE SET absence_type = excluded.absence_type, note = excluded.note`,
-  ).run(staffId, absenceDate, absenceType, note);
-}
-
-export function deleteAbsence(db, absenceId) {
-  db.prepare('DELETE FROM staff_absences WHERE absence_id = ?').run(absenceId);
-}
 
 /* ---------- 備份 ---------- */
 
@@ -228,6 +235,7 @@ export function exportAll(db) {
         morning_delta: 'morning_whiteboard_count',
         flag_delta: 'flag_whiteboard_count',
         noon_delta: 'noon_whiteboard_count',
+        special_delta: 'special_count',
       })) {
         if (row[column]) delta[field] = row[column];
       }
@@ -240,6 +248,8 @@ export function exportAll(db) {
       status: schedule.status,
       generated_at: schedule.generated_at,
       published_at: schedule.published_at,
+      // 備份裡一律用陣列，跟瀏覽器版的格式對齊
+      flag_days: String(schedule.flag_days ?? '').split(',').map(Number).filter((n) => n >= 1 && n <= 5),
       rows: listScheduleItems(db, schedule.schedule_id).map((r) => ({
         detail_id: r.detail_id,
         staff_id: r.staff_id,
@@ -247,12 +257,8 @@ export function exportAll(db) {
         day_of_week: r.day_of_week,
         is_override: r.is_override,
         slot_index: r.slot_index,
+        note: r.note ?? null,
       })),
-      // 一週只到週五，所以是起始日 + 4 天
-      absences: db.prepare(
-        `SELECT absence_id, staff_id, absence_date, absence_type, note FROM staff_absences
-          WHERE absence_date BETWEEN ? AND date(?, '+4 days') ORDER BY absence_date`,
-      ).all(week, week),
       ledger,
     };
   }
@@ -264,6 +270,7 @@ export function exportAll(db) {
       morning_whiteboard_count: row.morning_whiteboard_count,
       flag_whiteboard_count: row.flag_whiteboard_count,
       noon_whiteboard_count: row.noon_whiteboard_count,
+      special_count: row.special_count,
     };
   }
 
@@ -285,7 +292,7 @@ export function importAll(db, data) {
     throw Object.assign(new Error('備份檔內容不完整'), { status: 400 });
   }
 
-  for (const table of ['fairness_ledger', 'schedule_items', 'staff_absences', 'weekly_schedules',
+  for (const table of ['fairness_ledger', 'schedule_items', 'weekly_schedules',
     'fairness_stats', 'location_tasks', 'staff']) {
     db.prepare(`DELETE FROM ${table}`).run();
   }
@@ -309,48 +316,46 @@ export function importAll(db, data) {
 
   const insertStat = db.prepare(
     `INSERT INTO fairness_stats (staff_id, blackboard_count, morning_whiteboard_count,
-       flag_whiteboard_count, noon_whiteboard_count) VALUES (?, ?, ?, ?, ?)`,
+       flag_whiteboard_count, noon_whiteboard_count, special_count) VALUES (?, ?, ?, ?, ?, ?)`,
   );
   for (const s of data.staff) {
     const f = data.fairness?.[s.staff_id] ?? {};
     insertStat.run(s.staff_id, f.blackboard_count ?? 0, f.morning_whiteboard_count ?? 0,
-      f.flag_whiteboard_count ?? 0, f.noon_whiteboard_count ?? 0);
+      f.flag_whiteboard_count ?? 0, f.noon_whiteboard_count ?? 0, f.special_count ?? 0);
   }
 
   const insertSchedule = db.prepare(
-    'INSERT INTO weekly_schedules (week_start_date, status, generated_at, published_at) VALUES (?, ?, ?, ?)',
+    `INSERT INTO weekly_schedules (week_start_date, status, generated_at, published_at, flag_days)
+     VALUES (?, ?, ?, ?, ?)`,
   );
   const insertRow = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  const insertAbsence = db.prepare(
-    'INSERT INTO staff_absences (staff_id, absence_date, absence_type, note) VALUES (?, ?, ?, ?)',
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   // 帳本一定要跟著還原，否則之後撤回發布會沖銷不掉已累加的次數
   const insertLedger = db.prepare(
     `INSERT INTO fairness_ledger (schedule_id, staff_id, blackboard_delta, morning_delta,
-       flag_delta, noon_delta, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       flag_delta, noon_delta, special_delta, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+
+  // 備份可能來自瀏覽器版（陣列）或舊版伺服器（逗號字串），兩種都收
+  const flagDaysText = (value) => (Array.isArray(value) ? value.join(',') : String(value ?? ''));
 
   for (const [week, data_] of Object.entries(data.weeks ?? {})) {
     const info = insertSchedule.run(week, data_.status ?? 'DRAFT',
-      data_.generated_at ?? null, data_.published_at ?? null);
+      data_.generated_at ?? null, data_.published_at ?? null, flagDaysText(data_.flag_days));
     const scheduleId = Number(info.lastInsertRowid);
 
     for (const r of data_.rows ?? []) {
       insertRow.run(scheduleId, r.staff_id ?? null, r.item_id ?? null, r.day_of_week ?? null,
-        r.is_override ? 1 : 0, r.slot_index ?? 0);
-    }
-    for (const a of data_.absences ?? []) {
-      insertAbsence.run(a.staff_id, a.absence_date, a.absence_type ?? 'OFFICIAL', a.note ?? null);
+        r.is_override ? 1 : 0, r.slot_index ?? 0, r.note ?? null);
     }
     for (const [staffId, delta] of Object.entries(data_.ledger ?? {})) {
       insertLedger.run(scheduleId, Number(staffId),
         delta.blackboard_count ?? 0, delta.morning_whiteboard_count ?? 0,
         delta.flag_whiteboard_count ?? 0, delta.noon_whiteboard_count ?? 0,
-        data_.published_at ?? new Date().toISOString());
+        delta.special_count ?? 0, data_.published_at ?? new Date().toISOString());
     }
   }
 

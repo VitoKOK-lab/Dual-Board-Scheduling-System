@@ -59,7 +59,7 @@ const domain = DOMAIN_FILES
 const PATCHES = [
   {
     why: '領域層已提供同名常數，移除重複宣告',
-    from: `const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];\nconst SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休' };\n`,
+    from: `const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];\nconst SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休', SPECIAL: '公差' };\n`,
     to: '',
   },
   {
@@ -130,7 +130,7 @@ const script = [seedSrc, domain, read('web', 'store.js'), read('web', 'services.
   read('web', 'dispatch.js'), app].join('\n\n');
 
 const HEAD = `<title>雙板排班</title>
-<meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、Plan B 雙層備援。">
+<meta name="description" content="數位化實體黑板與白板的排班看板：一鍵自動排班、公平輪替、升旗事件與公差指派。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap">

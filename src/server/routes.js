@@ -4,8 +4,8 @@ import { Router } from './router.js';
 import * as schedule from '../services/scheduleService.js';
 import * as repo from '../services/repository.js';
 import { withTransaction } from '../db/index.js';
-import { currentWeekStart, dateForDay, isIsoDate, mondayOf, shiftWeeks } from '../domain/week.js';
-import { BOARD, ROLE, SHIFT, ZONE } from '../domain/constants.js';
+import { currentWeekStart, isIsoDate, mondayOf, shiftWeeks } from '../domain/week.js';
+import { BOARD, ROLE, SHIFT, WEEK_DAYS, ZONE } from '../domain/constants.js';
 
 const bad = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -76,28 +76,32 @@ export function buildRouter(db) {
     { limit: Number(query.get('limit') ?? 8) },
   ));
 
-  // ---- 公差 / 請假 ----
-  router.get('/api/absences', ({ query }) => {
-    const week = requireWeek(query.get('week'));
-    return { absences: repo.listAbsences(db, week, dateForDay(week, 5)) };
-  });
+  // ---- 公差（隊裡的特殊任務，主管手動指派） ----
+  router.post('/api/specials', ({ body }) => {
+    const week = requireWeek(body.week);
+    const dayOfWeek = body.day_of_week === null || body.day_of_week === undefined
+      ? null
+      : requireInt(body.day_of_week, 'day_of_week');
+    if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) throw bad('day_of_week 需為 1~5 或不填');
 
-  router.post('/api/absences', ({ body }) => {
-    if (!isIsoDate(body.absence_date)) throw bad('absence_date 需為 YYYY-MM-DD');
-    const type = body.absence_type ?? 'OFFICIAL';
-    if (!['OFFICIAL', 'LEAVE'].includes(type)) throw bad('absence_type 需為 OFFICIAL 或 LEAVE');
-    repo.createAbsence(db, {
+    return schedule.assignSpecial(db, week, {
       staffId: requireInt(body.staff_id, 'staff_id'),
-      absenceDate: body.absence_date,
-      absenceType: type,
-      note: body.note ?? null,
+      itemId: requireInt(body.item_id, 'item_id'),
+      dayOfWeek,
+      note: String(body.note ?? '').trim() || null,
     });
-    return schedule.getWeekView(db, mondayOf(body.absence_date));
   });
 
-  router.delete('/api/absences/:id', ({ params, query }) => {
-    repo.deleteAbsence(db, requireInt(params.id, 'absence_id'));
-    return schedule.getWeekView(db, requireWeek(query.get('week')));
+  router.delete('/api/specials/:detailId', ({ params }) => schedule.removeSpecial(
+    db, requireInt(params.detailId, 'detail_id'),
+  ));
+
+  // ---- 升旗日 ----
+  router.post('/api/week/flag-days', ({ body }) => {
+    const week = requireWeek(body.week);
+    const days = Array.isArray(body.days) ? body.days.map((d) => requireInt(d, 'days')) : [];
+    for (const d of days) if (!WEEK_DAYS.includes(d)) throw bad('升旗日需為 1~5');
+    return schedule.setFlagDays(db, week, days);
   });
 
   // ---- 備份 ----
@@ -120,6 +124,9 @@ export function buildRouter(db) {
     }
     if (boardType === BOARD.BLACKBOARD && ![SHIFT.ALL_WEEK, SHIFT.DAILY].includes(shiftType)) {
       throw bad('黑板時段需為 ALL_WEEK / DAILY');
+    }
+    if (boardType === BOARD.SPECIAL && shiftType !== SHIFT.SPECIAL) {
+      throw bad('公差的時段需為 SPECIAL');
     }
 
     const capacity = requireInt(body.required_capacity ?? 1, 'required_capacity');
