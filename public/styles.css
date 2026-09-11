@@ -159,34 +159,25 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 }
 .iconbtn:active { background: var(--sunken); }
 
-/* 星期條 */
-.daystrip {
-  display: flex; gap: 8px;
-  padding: 4px 0 10px;
-  overflow-x: auto; scrollbar-width: none;
-  scroll-snap-type: x proximity;
+/* 升旗日選擇器（升旗是事件，只在指定的日子排人） */
+.daypick {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+  margin-top: 4px;
 }
-.daystrip::-webkit-scrollbar { display: none; }
-
-.daychip {
-  flex: 1 0 auto; min-width: 58px; min-height: 54px;
+.daypick__chip {
+  min-height: 56px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  padding: 6px 10px;
+  padding: 6px 2px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
-  color: var(--ink-2); scroll-snap-align: center;
+  color: var(--ink-2);
   transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
 }
-.daychip__d { font-size: 13px; font-weight: 500; }
-.daychip__n { font-size: 15px; font-weight: 700; }
-.daychip[aria-pressed="true"] {
-  background: var(--ink); border-color: var(--ink); color: var(--bg);
+.daypick__d { font-size: 13px; font-weight: 500; }
+.daypick__n { font-size: 13px; font-weight: 700; }
+.daypick__chip[aria-pressed="true"] {
+  background: var(--topaz-soft); border-color: var(--topaz); color: var(--topaz-ink);
 }
-.daychip[data-today="1"]::after {
-  content: ''; width: 4px; height: 4px; border-radius: 50%;
-  background: currentColor; opacity: .7;
-}
-.daychip:active { transform: scale(.96); }
-.daychip[data-absent="1"] .daychip__n { color: inherit; }
+.daypick__chip:active { transform: scale(.96); }
 
 /* ---- 4. 內容區 ---- */
 .screen {
@@ -286,7 +277,6 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   content: ''; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; opacity: .55;
 }
-.tag--absent { text-decoration: line-through; opacity: .55; }
 .tag--dragging { opacity: .35; }
 .tag--dropzone { box-shadow: 0 0 0 3px var(--sapphire); }
 
@@ -422,9 +412,12 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 
 /* ---- 10. 統計 ---- */
 .rings { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.rings--wide { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.rings--wide svg { width: 62px; height: 62px; }
-.rings--wide .ring__val { font-size: 15px; }
+/* 五個維度（黑板／早修／升旗／午休／公差）排成一列，手機寬度也不換行 */
+.rings--wide { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.rings--wide .ring { gap: 4px; }
+.rings--wide .ring svg { width: 52px; height: 52px; }
+.rings--wide .ring__val { font-size: 14px; }
+.rings--wide .ring__label { font-size: 11px; }
 .ring { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .ring svg { width: 76px; height: 76px; transform: rotate(-90deg); }
 .ring__track { fill: none; stroke: var(--sunken); stroke-width: 9; }
@@ -447,6 +440,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .bar--am { background: var(--emerald); }
 .bar--fl { background: var(--topaz); }
 .bar--pm { background: var(--amethyst); }
+.bar--sp { background: var(--ruby); }
 .bar--zero { background: var(--border-strong); }
 .person__total { width: 30px; text-align: right; font-size: 15px; font-weight: 700; }
 .person--off .person__name { color: var(--ink-3); text-decoration: line-through; }
@@ -663,6 +657,26 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 
 /* 兩欄表（點位｜人員）固定比例，名稱長也不會把人員欄擠掉 */
 .sched--pair th[scope="row"] { width: 58%; }
+
+/* 白板四欄表：點位｜人員｜點位｜人員，照實體白板的兩欄寫法 */
+.sched--pair4 th[scope="row"] { min-width: 84px; width: 28%; }
+.sched--pair4 td { min-width: 76px; width: 22%; }
+.sched--pair4 td:nth-child(2) { border-right: 2px solid var(--border-strong); }
+.sched--pair4 .tag { padding: 4px 8px; }
+
+/* 同一點位排多人時，名牌上下疊 */
+.cell-tags { display: flex; flex-direction: column; }
+.cell-tags .tag + .tag { border-top: 1px solid var(--border); }
+
+/* 公差表：任務名可能較長，人員欄不要被擠掉 */
+.sched--special th[scope="row"] { min-width: 104px; }
+
+/* 升旗底下的定點／巡查小標 */
+.zone-title {
+  margin: 2px 4px -8px;
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  color: var(--ink-3);
+}
 
 /* 黑板的每日欄位窄，字級再收一點 */
 .sched--week th[scope="row"] { min-width: 62px; }

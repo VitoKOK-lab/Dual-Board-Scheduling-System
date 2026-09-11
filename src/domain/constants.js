@@ -12,27 +12,34 @@ export const DAY_LABELS = {
 export const BOARD = {
   WHITEBOARD: 'WHITEBOARD',
   BLACKBOARD: 'BLACKBOARD',
+  SPECIAL: 'SPECIAL',     // 公差：隊裡的特殊任務
 };
 
 export const SHIFT = {
-  MORNING: 'MORNING',   // 早修
-  FLAG: 'FLAG',         // 升旗（含定點與巡查兩種任務，同一時段）
-  NOON: 'NOON',         // 午休
-  ALL_WEEK: 'ALL_WEEK', // 黑板全週職務
-  DAILY: 'DAILY',       // 黑板每日職務
+  MORNING: 'MORNING',     // 早修 —— 整週同一人
+  FLAG: 'FLAG',           // 升旗 —— 只在指定的升旗日，平常整塊空著
+  NOON: 'NOON',           // 午休 —— 整週同一人
+  ALL_WEEK: 'ALL_WEEK',   // 黑板全週職務
+  DAILY: 'DAILY',         // 黑板每日職務
+  SPECIAL: 'SPECIAL',     // 公差 —— 主管手動指派
 };
 
 export const SHIFT_LABEL = {
   [SHIFT.MORNING]: '早修',
   [SHIFT.FLAG]: '升旗',
   [SHIFT.NOON]: '午休',
+  [SHIFT.ALL_WEEK]: '全週職務',
+  [SHIFT.DAILY]: '每日職務',
+  [SHIFT.SPECIAL]: '公差',
 };
 
 /**
- * 白板的三個時段，依實際作息先後排列。
- * 升旗的「定點」與「巡查」是同一時段的兩種任務，
- * 因此共用一個名額上限——一個人在升旗時段只會站一個位置。
+ * 白板依週指派的時段：一個點位整週同一人，一週洗牌一次。
+ * 升旗不在其中——它是事件，只在升旗日才排。
  */
+export const WEEKLY_SHIFTS = [SHIFT.MORNING, SHIFT.NOON];
+
+/** 白板的三個時段，依實際作息先後排列。 */
 export const WHITEBOARD_SHIFTS = [SHIFT.MORNING, SHIFT.FLAG, SHIFT.NOON];
 
 /** 升旗時段內的任務分區，僅供看板分組顯示。 */
@@ -47,8 +54,8 @@ export const ZONE = {
  * 由主管手動升級為師傅後才會被排到班。
  */
 export const ROLE = {
-  MASTER: 'MASTER',       // 師傅：可排班
-  APPRENTICE: 'APPRENTICE', // 徒弟：不排班
+  MASTER: 'MASTER',
+  APPRENTICE: 'APPRENTICE',
 };
 
 export const ROLE_LABEL = {
@@ -59,6 +66,6 @@ export const ROLE_LABEL = {
 export const WARNING = {
   UNDERSTAFFED: 'UNDERSTAFFED',             // 點位人數不足，留下空缺
   CONSTRAINT_RELAXED: 'CONSTRAINT_RELAXED', // 為填滿點位而放寬軟性限制
-  CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 單一時段名額總數超過可排班師傅數
+  CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 名額總數超過可排班師傅數
   IDLE_STAFF: 'IDLE_STAFF',                 // 有師傅整週沒有任何任務
 };

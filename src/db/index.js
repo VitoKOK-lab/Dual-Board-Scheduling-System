@@ -47,7 +47,11 @@ function migrate(db) {
     ['staff', 'role', "TEXT NOT NULL DEFAULT 'APPRENTICE'"],
     ['location_tasks', 'zone', "TEXT NOT NULL DEFAULT ''"],
     ['fairness_stats', 'flag_whiteboard_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['fairness_stats', 'special_count', 'INTEGER NOT NULL DEFAULT 0'],
     ['fairness_ledger', 'flag_delta', 'INTEGER NOT NULL DEFAULT 0'],
+    ['fairness_ledger', 'special_delta', 'INTEGER NOT NULL DEFAULT 0'],
+    ['weekly_schedules', 'flag_days', "TEXT NOT NULL DEFAULT ''"],
+    ['schedule_items', 'note', 'TEXT'],
   ];
   for (const [table, column, definition] of additions) {
     const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);

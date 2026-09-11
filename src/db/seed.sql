@@ -1,11 +1,13 @@
--- 種子資料：點位取自主管提供的班表範本（白板／黑板表格）
+-- 種子資料：點位取自主管提供的班表範本與補充清單
 --
--- 白板分三個時段：早修 → 升旗 → 午休，升旗底下再分定點與巡查。
--- 定點與巡查屬同一時段、共用名額上限：一個人在升旗時段只會站一個位置。
+-- 白板：早修 10 點、午休 12 點 —— 依週指派，一個點位整週同一人，一週洗牌一次。
+--       升旗 19 點（定點 11 + 巡查 8）—— 每月約三次的事件，
+--       只在指定的升旗日才排，平常整塊空著。
+-- 黑板：全週職務 2 項、每日職務 4 項。
+-- 公差：隊裡的特殊任務，由主管手動指派、計入統計。
+--       預設先放入升旗巡查的點位當現成名牌，不用臨時一個一個新增。
 --
--- 範本每個點位只有一格「人員」，所以每點 1 人。
--- 單一時段的尖峰是升旗 19 個名額，22 位師傅足夠，
--- 每人每週約 10 次任務，不會有人整週閒著。
+-- 每個點位只有一格「人員」，所以每點 1 人。
 
 INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity, zone, sort_order) VALUES
   ('BLACKBOARD', 'ALL_WEEK', '交接', 1, '', 10),
@@ -33,7 +35,7 @@ INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity
   ('WHITEBOARD', 'FLAG', '教大電梯', 1, '定點', 70),
   ('WHITEBOARD', 'FLAG', '廣興樓1F', 1, '定點', 80),
   ('WHITEBOARD', 'FLAG', '保健室1F', 1, '定點', 90),
-  ('WHITEBOARD', 'FLAG', '廣興樓(右)2F', 1, '定點', 100),
+  ('WHITEBOARD', 'FLAG', '廣興(右)2F', 1, '定點', 100),
   ('WHITEBOARD', 'FLAG', '育英2F(中)', 1, '定點', 110),
   ('WHITEBOARD', 'FLAG', '辦公室', 1, '巡查', 120),
   ('WHITEBOARD', 'FLAG', '教大345F', 1, '巡查', 130),
@@ -47,14 +49,22 @@ INSERT INTO location_tasks (board_type, shift_type, item_name, required_capacity
   ('WHITEBOARD', 'NOON', '教大3-4F', 1, '', 20),
   ('WHITEBOARD', 'NOON', '教大5-6F+空中花園', 1, '', 30),
   ('WHITEBOARD', 'NOON', '教大7-8F', 1, '', 40),
-  ('WHITEBOARD', 'NOON', '紀念館1-6F', 1, '', 50),
+  ('WHITEBOARD', 'NOON', '紀念館', 1, '', 50),
   ('WHITEBOARD', 'NOON', '自強樓', 1, '', 60),
   ('WHITEBOARD', 'NOON', 'PU跑道', 1, '', 70),
   ('WHITEBOARD', 'NOON', '莊敬樓', 1, '', 80),
   ('WHITEBOARD', 'NOON', '更生樓', 1, '', 90),
   ('WHITEBOARD', 'NOON', '育英樓', 1, '', 100),
   ('WHITEBOARD', 'NOON', '廣興樓', 1, '', 110),
-  ('WHITEBOARD', 'NOON', '711', 1, '', 120);
+  ('WHITEBOARD', 'NOON', '7-11', 1, '', 120),
+  ('SPECIAL', 'SPECIAL', '辦公室', 1, '', 10),
+  ('SPECIAL', 'SPECIAL', '教大345F', 1, '', 20),
+  ('SPECIAL', 'SPECIAL', '教大678F', 1, '', 30),
+  ('SPECIAL', 'SPECIAL', '育英樓', 1, '', 40),
+  ('SPECIAL', 'SPECIAL', '廣興樓', 1, '', 50),
+  ('SPECIAL', 'SPECIAL', '更生+莊敬', 1, '', 60),
+  ('SPECIAL', 'SPECIAL', '自強+紀念', 1, '', 70),
+  ('SPECIAL', 'SPECIAL', '地下室', 1, '', 80);
 
 -- 實際名冊：高一組 47 人（徒弟）、高二組 22 人（師傅），合計 69 人
 -- 徒弟不排班；主管手動升級為師傅後才會進入排班池。
