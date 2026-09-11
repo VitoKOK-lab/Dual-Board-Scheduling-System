@@ -23,7 +23,7 @@ function absencesForWeek(week) {
 }
 
 /** 一鍵自動排班。重新生成會整批覆蓋該週明細，含手動調整過的部分。 */
-function generate(week, { standbyCount = STANDBY_MAX } = {}) {
+function generate(week) {
   const data = ensureWeek(week);
   const plan = generateWeeklyPlan({
     staff: sortedStaff(),
@@ -31,7 +31,6 @@ function generate(week, { standbyCount = STANDBY_MAX } = {}) {
     stats: new Map(listFairness().map((f) => [f.staff_id, f])),
     absences: absencesForWeek(week),
     weekStartDate: week,
-    standbyCount,
   });
 
   data.rows = plan.assignments.map((a) => ({
@@ -39,7 +38,6 @@ function generate(week, { standbyCount = STANDBY_MAX } = {}) {
     staff_id: a.staff_id ?? null,
     item_id: a.item_id ?? null,
     day_of_week: a.day_of_week ?? null,
-    is_plan_b_standby: Boolean(a.is_plan_b_standby),
     is_override: false,
     slot_index: a.slot_index ?? 0,
   }));
@@ -78,9 +76,6 @@ function settleFairness(week) {
 
     const delta = data.ledger[row.staff_id] ?? (data.ledger[row.staff_id] = {});
     const bump = (field) => { delta[field] = (delta[field] ?? 0) + 1; };
-
-    // 預備隊整週待命，計入 standby_count 以輪替待命權，不計入工作量
-    if (row.is_plan_b_standby) { bump('standby_count'); continue; }
 
     const item = items.get(row.item_id);
     if (!item) continue;
@@ -215,14 +210,12 @@ function buildCapacitySummary(items) {
     points: items.filter((i) => i.board_type === BOARD.WHITEBOARD && i.shift_type === shift).length,
   }));
   const peak = Math.max(0, ...shifts.map((s) => s.slots));
-  const headroom = masters - peak;
 
   return {
     masters,
     shifts,
     peak_slots: peak,
-    headroom,
-    standby_capacity: Math.max(0, Math.min(STANDBY_MAX, headroom)),
+    headroom: masters - peak,
     feasible: peak <= masters,
   };
 }
@@ -235,7 +228,7 @@ function getWeekView(week) {
   const dates = Object.fromEntries(WEEK_DAYS.map((d) => [d, dateForDay(week, d)]));
 
   const warnings = data.rows
-    .filter((r) => r.staff_id == null && !r.is_plan_b_standby)
+    .filter((r) => r.staff_id == null)
     .map((r) => ({
       code: WARNING.UNDERSTAFFED,
       detail_id: r.detail_id,
@@ -258,10 +251,7 @@ function getWeekView(week) {
     staff: sortedStaff(),
     groups: listGroups(),
     items,
-    assignments: data.rows.filter((r) => !r.is_plan_b_standby).map(clone),
-    standby: data.rows.filter((r) => r.is_plan_b_standby)
-      .sort((a, b) => a.slot_index - b.slot_index)
-      .map((r) => ({ detail_id: r.detail_id, staff_id: r.staff_id })),
+    assignments: data.rows.map(clone),
     absences: absencesForWeek(week),
     fairness: listFairness(),
     published_weeks: countPublishedWeeks(),

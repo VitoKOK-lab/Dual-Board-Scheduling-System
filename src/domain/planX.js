@@ -1,7 +1,7 @@
 /**
  * Plan X 動態補位 —— 規格 §2.3。
  *
- * 主管點擊請假後，系統依序推薦：Plan Y 預備隊 → 當前負擔最輕者。
+ * 主管點擊名牌換人時，依當前負擔由輕到重推薦可用的師傅。
  * 同時提供覆寫衝突檢查：規格 §1 明訂主管具 100% 強制覆寫權，
  * 因此本模組只「回報衝突」，不阻擋指派。
  */
@@ -40,7 +40,7 @@ function shiftOf(item) {
 
 /**
  * 把班表列轉成查詢索引。
- * @param rows 班表明細（含 staff_id / item_id / day_of_week / is_plan_b_standby）
+ * @param rows 班表明細（含 staff_id / item_id / day_of_week）
  * @param itemsById Map<item_id, location_task>
  */
 export function buildBoardIndex(rows, itemsById) {
@@ -49,7 +49,6 @@ export function buildBoardIndex(rows, itemsById) {
     spots: new Map(),         // day -> Map<staffId, Set<item_name>>
     blackboardDaily: new Map(), // day -> Map<staffId, Set<item_id>>
     allWeek: new Map(),       // staffId -> Set<item_id>
-    standby: new Set(),
     occupancy: new Map(),     // item_id -> Map<day|'ALL', Set<staffId>>
     weekAssigned: new Map(),  // staffId -> 本週被指派次數
   };
@@ -66,11 +65,6 @@ export function buildBoardIndex(rows, itemsById) {
 
   for (const row of rows) {
     if (row.staff_id == null) continue;
-
-    if (row.is_plan_b_standby) {
-      index.standby.add(row.staff_id);
-      continue;
-    }
 
     const item = itemsById.get(row.item_id);
     if (!item) continue;
@@ -157,10 +151,10 @@ function dimensionOf(item) {
 /**
  * Plan X 補位推薦。
  *
- * 排序：無衝突優先 → Plan Y 預備隊優先 → 該維度歷史次數少者優先
+ * 排序：無衝突優先 → 該維度歷史次數少者優先
  *      → 本週指派次數少者優先 → staff_id。
  *
- * @returns {Array<{staff_id, name, is_standby, conflicts, reason, score}>}
+ * @returns {Array<{staff_id, name, conflicts, historyCount, weekAssigned}>}
  */
 export function recommendReplacements({
   staff, targetItem, targetDay, rows, itemsById, stats = new Map(),
@@ -176,17 +170,14 @@ export function recommendReplacements({
     .map((s) => {
       const conflicts = checkConflicts({ candidate: s, targetItem, targetDay, index, absentSet });
       const stat = stats.get(s.staff_id) ?? {};
-      const isStandby = index.standby.has(s.staff_id);
       return {
         staff_id: s.staff_id,
         name: s.name,
         staff_group: s.staff_group,
         role: s.role,
-        is_standby: isStandby,
         conflicts,
         historyCount: stat[statKey] ?? 0,
         weekAssigned: index.weekAssigned.get(s.staff_id) ?? 0,
-        reason: isStandby ? 'Plan Y 預備隊' : '負擔較輕',
       };
     })
     // 徒弟不排班，直接不列入；已在同一點位者也不列入
@@ -195,7 +186,6 @@ export function recommendReplacements({
 
   scored.sort((a, b) => {
     if ((a.conflicts.length === 0) !== (b.conflicts.length === 0)) return a.conflicts.length === 0 ? -1 : 1;
-    if (a.is_standby !== b.is_standby) return a.is_standby ? -1 : 1;
     if (a.conflicts.length !== b.conflicts.length) return a.conflicts.length - b.conflicts.length;
     if (a.historyCount !== b.historyCount) return a.historyCount - b.historyCount;
     if (a.weekAssigned !== b.weekAssigned) return a.weekAssigned - b.weekAssigned;

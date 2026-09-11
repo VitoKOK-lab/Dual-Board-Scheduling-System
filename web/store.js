@@ -122,7 +122,6 @@ function blankStat() {
     morning_whiteboard_count: 0,
     flag_whiteboard_count: 0,
     noon_whiteboard_count: 0,
-    standby_count: 0,
   };
 }
 

@@ -38,8 +38,7 @@ CREATE TABLE IF NOT EXISTS fairness_stats (
     blackboard_count         INTEGER NOT NULL DEFAULT 0,
     morning_whiteboard_count INTEGER NOT NULL DEFAULT 0,
     flag_whiteboard_count    INTEGER NOT NULL DEFAULT 0,
-    noon_whiteboard_count    INTEGER NOT NULL DEFAULT 0,
-    standby_count            INTEGER NOT NULL DEFAULT 0   -- 擔任 Plan Y 預備隊的次數，用於輪替待命權
+    noon_whiteboard_count    INTEGER NOT NULL DEFAULT 0
 );
 
 -- 4. 週班表主表
@@ -51,14 +50,13 @@ CREATE TABLE IF NOT EXISTS weekly_schedules (
     published_at    TEXT
 );
 
--- 5. 班表明細表 (含 Plan B 標記)
+-- 5. 班表明細表
 CREATE TABLE IF NOT EXISTS schedule_items (
     detail_id          INTEGER PRIMARY KEY AUTOINCREMENT,
     schedule_id        INTEGER NOT NULL REFERENCES weekly_schedules (schedule_id) ON DELETE CASCADE,
     staff_id           INTEGER REFERENCES staff (staff_id) ON DELETE SET NULL,
     item_id            INTEGER REFERENCES location_tasks (item_id) ON DELETE CASCADE,
-    day_of_week        INTEGER CHECK (day_of_week BETWEEN 1 AND 5),  -- NULL = 全週職務 / 預備隊
-    is_plan_b_standby  INTEGER NOT NULL DEFAULT 0 CHECK (is_plan_b_standby IN (0, 1)),
+    day_of_week        INTEGER CHECK (day_of_week BETWEEN 1 AND 5),  -- NULL = 全週職務
     is_override        INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
     slot_index         INTEGER NOT NULL DEFAULT 0        -- 同點位內第幾個名額，供前端穩定排序
 );
@@ -93,7 +91,6 @@ CREATE TABLE IF NOT EXISTS fairness_ledger (
     morning_delta    INTEGER NOT NULL DEFAULT 0,
     flag_delta       INTEGER NOT NULL DEFAULT 0,
     noon_delta       INTEGER NOT NULL DEFAULT 0,
-    standby_delta    INTEGER NOT NULL DEFAULT 0,
     applied_at    TEXT NOT NULL,
     UNIQUE (schedule_id, staff_id)
 );

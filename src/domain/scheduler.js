@@ -5,11 +5,13 @@
  * 不碰資料庫、不依賴時間，因此可完整單元測試與回放。
  *
  * 執行順序：
- *   A. Plan Y 預備隊 —— 最先選，被選中者整週完全不排班，真正待命
- *   B. 黑板全週職務（交接、值日生）
- *   C. 黑板每日職務（餐車、早修升旗、午休回來）
- *   D. 白板三個時段：早修 → 升旗 → 午休
+ *   A. 黑板全週職務（交接、值日生）
+ *   B. 黑板每日職務（餐車、早修、午休、校表）
+ *   C. 白板三個時段：早修 → 升旗 → 午休
  *      升旗底下的「定點」與「巡查」是同一時段的兩種任務，共用名額上限。
+ *
+ * 每個人都要有任務：所有可排班的師傅一律進入候選池，
+ * 生成後若仍有人整週掛零會回報 IDLE_STAFF。
  *
  * 師徒制：只有「師傅」進入排班池。徒弟跟著自己的師傅學習，
  * 不排班、不計入點位人數，由主管手動升級為師傅後才會被排到班。
@@ -19,10 +21,9 @@
  */
 
 import {
-  BOARD, ROLE, SHIFT, SHIFT_LABEL, STANDBY_MAX, STANDBY_MIN,
-  WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
+  BOARD, ROLE, SHIFT, SHIFT_LABEL, WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
 } from './constants.js';
-import { DIMENSION, LoadTracker, buildTieRanks, comparatorFor, standbyComparator } from './fairness.js';
+import { DIMENSION, LoadTracker, buildTieRanks, comparatorFor } from './fairness.js';
 
 /** 白板時段 → 公平性維度。 */
 const SHIFT_DIMENSION = {
@@ -117,7 +118,6 @@ export function generateWeeklyPlan({
   stats = new Map(),
   absences = [],
   weekStartDate,
-  standbyCount = STANDBY_MAX,
 }) {
   if (!weekStartDate) throw new Error('generateWeeklyPlan 需要 weekStartDate');
 
@@ -138,46 +138,12 @@ export function generateWeeklyPlan({
   const warn = (code, detail) => warnings.push({ code, ...detail });
 
   // ---------------------------------------------------------------
-  // A. Plan Y — 靜態預備隊（最先選，被選中者整週完全不排班）
-  //    依「擔任預備隊次數」輪替待命權：待命最少者優先，
-  //    平手時讓累計負擔最重的人休息。
+  // A. 黑板 — 全週固定職務（交接、值日生），各 1 人、1 週 1 次
   // ---------------------------------------------------------------
-  // 預備隊不能挖走排班需要的人：先算出單一時段的尖峰名額數，
-  // 剩下的餘裕才是可以留作待命的人數。班表填不滿比沒有預備隊嚴重。
-  const peakDemand = Math.max(
-    ...WHITEBOARD_SHIFTS.map((shift) => selectItems(items, BOARD.WHITEBOARD, shift)
-      .reduce((sum, i) => sum + i.required_capacity, 0)),
-    0,
-  );
-  const headroom = Math.max(0, pool.length - peakDemand);
-  const wanted = Math.min(Math.max(standbyCount, STANDBY_MIN), STANDBY_MAX, headroom);
-
-  const standbyPool = pool
-    .filter((s) => !WEEK_DAYS.some((d) => state.isAbsent(s.staff_id, d)))
-    .sort(standbyComparator(tracker, tieRanks));
-  const standby = standbyPool.slice(0, wanted).map((s) => s.staff_id);
-  const standbySet = new Set(standby);
-
-  if (standby.length < STANDBY_MIN) {
-    warn(WARNING.STANDBY_SHORT, {
-      available: standby.length,
-      required: STANDBY_MIN,
-      masters: pool.length,
-      peak_slots: peakDemand,
-      reason: headroom < STANDBY_MIN ? '可排班師傅數扣掉尖峰名額後不足' : '可出勤人數不足',
-    });
-  }
-
-  // ---------------------------------------------------------------
-  // B. 黑板 — 全週固定職務（交接、值日生），各 1 人、1 週 1 次
-  // ---------------------------------------------------------------
-  // 預備隊整週待命，黑板任務也不排
-  const dutyPool = pool.filter((s) => !standbySet.has(s.staff_id));
-
   for (const item of selectItems(items, BOARD.BLACKBOARD, SHIFT.ALL_WEEK)) {
     for (let slot = 0; slot < item.required_capacity; slot += 1) {
       const { staff: chosen, relaxed } = pickCandidate(
-        dutyPool,
+        pool,
         [
           // 硬性：未擔任其他全週職務；軟性：整週皆可出勤
           (s) => !state.allWeekHolders.has(s.staff_id) && !state.isAbsentAnyDay(s.staff_id),
@@ -205,7 +171,7 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // C. 黑板 — 每日輪替職務（餐車、早修升旗、午休回來）
+  // B. 黑板 — 每日輪替職務（餐車、早修、午休、校表）
   // ---------------------------------------------------------------
   const dailyItems = selectItems(items, BOARD.BLACKBOARD, SHIFT.DAILY);
   for (const day of WEEK_DAYS) {
@@ -213,7 +179,7 @@ export function generateWeeklyPlan({
     for (const item of dailyItems) {
       for (let slot = 0; slot < item.required_capacity; slot += 1) {
         const { staff: chosen, relaxed } = pickCandidate(
-          dutyPool,
+          pool,
           [
             // 硬性：當日可出勤、當日尚未有黑板任務；軟性：非全週職務持有者
             (s) => !state.isAbsent(s.staff_id, day) && !taken.has(s.staff_id) && !state.allWeekHolders.has(s.staff_id),
@@ -242,10 +208,8 @@ export function generateWeeklyPlan({
   }
 
   // ---------------------------------------------------------------
-  // D. 白板 —— 早修 → 升旗 → 午休
+  // C. 白板 —— 早修 → 升旗 → 午休
   // ---------------------------------------------------------------
-  const whiteboardPool = pool.filter((s) => !standbySet.has(s.staff_id));
-
   for (const shift of WHITEBOARD_SHIFTS) {
     const shiftItems = selectItems(items, BOARD.WHITEBOARD, shift);
     if (shiftItems.length === 0) continue;
@@ -254,13 +218,13 @@ export function generateWeeklyPlan({
     const comparator = comparatorFor(SHIFT_DIMENSION[shift], tracker, tieRanks);
 
     // 每人每個時段只能站一個點位，供給上限就是可排班人數
-    if (demand > whiteboardPool.length) {
+    if (demand > pool.length) {
       warn(WARNING.CAPACITY_EXCEEDED, {
         shift_type: shift,
         shift_label: SHIFT_LABEL[shift] ?? shift,
         required: demand,
-        available: whiteboardPool.length,
-        shortfall: demand - whiteboardPool.length,
+        available: pool.length,
+        shortfall: demand - pool.length,
       });
     }
 
@@ -268,7 +232,7 @@ export function generateWeeklyPlan({
       for (const day of WEEK_DAYS) {
         for (let slot = 0; slot < item.required_capacity; slot += 1) {
           const { staff: chosen } = pickCandidate(
-            whiteboardPool,
+            pool,
             [
               // 硬性：當日可出勤、該時段尚未有點位、當日未站過同名點位
               (s) => !state.isAbsent(s.staff_id, day)
@@ -295,20 +259,21 @@ export function generateWeeklyPlan({
     }
   }
 
-  for (const [index, staffId] of standby.entries()) {
-    assignments.push({
-      item_id: null, staff_id: staffId, day_of_week: null, slot_index: index, is_plan_b_standby: 1,
+  // 每個人都要有任務：整週掛零的人要讓主管看見
+  const idle = pool.filter((s) => tracker.weekAssigned(s.staff_id) === 0);
+  if (idle.length > 0) {
+    warn(WARNING.IDLE_STAFF, {
+      staff_ids: idle.map((s) => s.staff_id),
+      names: idle.map((s) => s.name),
     });
   }
 
   return {
     weekStartDate,
     assignments: assignments.map((a) => ({
-      is_plan_b_standby: 0,
       is_override: 0,
       ...a,
     })),
-    standby,
     warnings,
     load: tracker.snapshot(),
   };

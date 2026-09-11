@@ -125,23 +125,7 @@ test('公差：整週皆有公差者不會被指派全週固定職務', () => {
   assert.ok(allWeek.every((a) => a.staff_id !== 1));
 });
 
-test('Plan Y：選出 2~3 名預備隊，且皆為在職人員', () => {
-  const { plan, staff } = run();
-  assert.ok(plan.standby.length >= 2 && plan.standby.length <= 3);
-  assert.equal(new Set(plan.standby).size, plan.standby.length);
-  for (const id of plan.standby) {
-    assert.ok(staff.find((s) => s.staff_id === id)?.is_active);
-  }
-});
 
-test('Plan Y：優先選出本週被指派次數最少的人', () => {
-  const { plan } = run();
-  const load = new Map();
-  for (const a of placed(plan)) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
-  const standbyMax = Math.max(...plan.standby.map((id) => load.get(id) ?? 0));
-  const overallMin = Math.min(...[...load.values()]);
-  assert.ok(standbyMax <= overallMin + 1);
-});
 
 test('人力不足時保留空缺並回報警告，不會重複指派同一人', () => {
   const { plan, byId } = run({ staff: makeStaff(3) });
@@ -159,12 +143,11 @@ test('人力不足時保留空缺並回報警告，不會重複指派同一人',
   }
 });
 
-test('停用人員不會出現在任何名額或預備隊', () => {
+test('停用人員不會出現在任何名額', () => {
   const staff = makeStaff(20);
   staff[0].is_active = false;
   const { plan } = run({ staff });
   assert.ok(placed(plan).every((a) => a.staff_id !== 1));
-  assert.ok(!plan.standby.includes(1));
 });
 
 test('決定性：相同輸入必產生完全相同的班表', () => {
@@ -201,9 +184,6 @@ test('徒弟完全不會被排班', () => {
   for (const a of placed(plan)) {
     assert.equal(roleOf.get(a.staff_id), ROLE.MASTER, `徒弟 ${a.staff_id} 被排到班`);
   }
-  for (const id of plan.standby) {
-    assert.equal(roleOf.get(id), ROLE.MASTER, '預備隊也只能是師傅');
-  }
 });
 
 test('把徒弟升級為師傅後，他才會進入排班池', () => {
@@ -223,7 +203,6 @@ test('停用的師傅不會被排班', () => {
   staff[0].is_active = false;
   const { plan } = run({ staff });
   assert.ok(placed(plan).every((a) => a.staff_id !== 1));
-  assert.ok(!plan.standby.includes(1));
 });
 
 // ---------------------------------------------------------------
@@ -241,69 +220,10 @@ test('單一時段名額數超過師傅數時回報 CAPACITY_EXCEEDED 並留下�
   assert.ok(plan.assignments.some((a) => a.staff_id == null && !a.is_plan_b_standby));
 });
 
-test('預備隊不會挖走排班需要的人：餘裕不足時自動減少人數', () => {
-  // 9 位師傅，尖峰 8 個名額 → 只剩 1 位可待命
-  const { plan } = run({ staff: makeStaff(9), items: makeItems({ capacity: 2 }) });
 
-  assert.ok(plan.standby.length <= 1, `餘裕只有 1 人，卻挑了 ${plan.standby.length} 位預備隊`);
-  assert.ok(plan.warnings.some((w) => w.code === WARNING.STANDBY_SHORT));
 
-  const gaps = plan.assignments.filter((a) => a.staff_id == null && !a.is_plan_b_standby);
-  assert.equal(gaps.length, 0, '寧可少留待命，也不該讓班表出現空缺');
-});
 
-test('餘裕充足時仍挑滿 2~3 位預備隊', () => {
-  const { plan } = run({ staff: makeStaff(20), items: makeItems({ capacity: 2 }) });
-  assert.ok(plan.standby.length >= 2 && plan.standby.length <= 3);
 
-  const gaps = plan.assignments.filter((a) => a.staff_id == null && !a.is_plan_b_standby);
-  assert.equal(gaps.length, 0);
-});
-
-// ---------------------------------------------------------------
-// Plan Y 待命權輪替
-// ---------------------------------------------------------------
-
-test('Plan Y 預備隊整週完全不排班（含黑板）', () => {
-  const { plan } = run({ staff: makeStaff(20) });
-  const assigned = new Set(placed(plan).map((a) => a.staff_id));
-  assert.ok(plan.standby.length >= 2);
-  for (const id of plan.standby) {
-    assert.ok(!assigned.has(id), '預備隊不應出現在任何名額，包含黑板任務');
-  }
-});
-
-test('待命權輪替：擔任過預備隊者，下次會讓給待命次數更少的人', () => {
-  const staff = makeStaff(20);
-  const rested = [1, 2, 3];
-
-  // 這 3 人已待命過 1 次，且累計工作量最低（若只看工作量會再度被選中）
-  const stats = new Map(staff.map((s) => [s.staff_id, {
-    blackboard_count: 0,
-    morning_whiteboard_count: rested.includes(s.staff_id) ? 0 : 10,
-    noon_whiteboard_count: 0,
-    standby_count: rested.includes(s.staff_id) ? 1 : 0,
-  }]));
-
-  const { plan } = run({ staff, stats });
-  for (const id of rested) {
-    assert.ok(!plan.standby.includes(id), '待命次數較多的人不應再次被選為預備隊');
-  }
-});
-
-test('待命次數相同時，讓累計工作量最重的人休息', () => {
-  const staff = makeStaff(20);
-  const busiest = 20;
-  const stats = new Map(staff.map((s) => [s.staff_id, {
-    blackboard_count: 0,
-    morning_whiteboard_count: s.staff_id === busiest ? 99 : 1,
-    noon_whiteboard_count: 0,
-    standby_count: 0,
-  }]));
-
-  const { plan } = run({ staff, stats });
-  assert.ok(plan.standby.includes(busiest), '負擔最重者應優先獲得待命週');
-});
 
 // ---------------------------------------------------------------
 // 三個白板時段：早修 → 升旗 → 午休
@@ -392,4 +312,39 @@ test('升旗次數獨立累計，不會跟早修或午休混在一起', () => {
   }
   const values = [...morningCounts.values()];
   assert.ok(Math.max(...values) - Math.min(...values) <= 1, '早修應維持自己的平衡');
+});
+
+// ---------------------------------------------------------------
+// 每個人都要有任務
+// ---------------------------------------------------------------
+
+test('名額足夠時，每一位師傅整週都有任務', () => {
+  const { plan, staff } = run({ staff: makeStaff(20) });
+
+  const load = new Map();
+  for (const a of placed(plan)) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
+
+  for (const person of staff.filter((s) => s.is_active)) {
+    assert.ok((load.get(person.staff_id) ?? 0) > 0, `${person.name} 整週沒有任何任務`);
+  }
+  assert.ok(!plan.warnings.some((w) => w.code === WARNING.IDLE_STAFF));
+});
+
+test('名額不足以讓每個人都排到時，回報 IDLE_STAFF 並列出是誰', () => {
+  // 40 位師傅，但整週白板只有 2 個點位 × 5 天 = 10 個名額，黑板 5 項
+  const { plan } = run({
+    staff: makeStaff(40),
+    items: makeItems({ morningPoints: 1, flagPoints: 0, noonPoints: 1, capacity: 1 }),
+  });
+
+  const idle = plan.warnings.find((w) => w.code === WARNING.IDLE_STAFF);
+  assert.ok(idle, '應回報有人整週掛零');
+  assert.ok(idle.staff_ids.length > 0);
+  assert.equal(idle.staff_ids.length, idle.names.length);
+
+  const load = new Map();
+  for (const a of placed(plan)) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
+  for (const id of idle.staff_ids) {
+    assert.equal(load.get(id) ?? 0, 0, '被列為掛零的人不該有任務');
+  }
 });

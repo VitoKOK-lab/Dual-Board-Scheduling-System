@@ -1,7 +1,7 @@
 /** 班表服務層：生成、覆寫、補位、發布結算。 */
 
 import {
-  BOARD, ROLE, SHIFT, SHIFT_LABEL, STANDBY_MAX, WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
+  BOARD, ROLE, SHIFT, SHIFT_LABEL, WARNING, WEEK_DAYS, WHITEBOARD_SHIFTS,
 } from '../domain/constants.js';
 import { generateWeeklyPlan } from '../domain/scheduler.js';
 import { CONFLICT_LABEL, buildBoardIndex, checkConflicts, recommendReplacements } from '../domain/planX.js';
@@ -36,7 +36,7 @@ export function ensureSchedule(db, rawWeek) {
  * 一鍵自動排班 —— 規格 §4。
  * 重新生成會整批覆蓋該週明細（含既有手動覆寫），為不可逆操作。
  */
-export function generate(db, rawWeek, { standbyCount = 3 } = {}) {
+export function generate(db, rawWeek) {
   const schedule = ensureSchedule(db, rawWeek);
   const weekStartDate = schedule.week_start_date;
 
@@ -46,7 +46,6 @@ export function generate(db, rawWeek, { standbyCount = 3 } = {}) {
     stats: repo.fairnessMap(db),
     absences: absencesForWeek(db, weekStartDate),
     weekStartDate,
-    standbyCount,
   });
 
   withTransaction(db, () => {
@@ -70,15 +69,13 @@ export function settleFairness(db, scheduleId) {
         SET blackboard_count         = MAX(0, blackboard_count + ?),
             morning_whiteboard_count = MAX(0, morning_whiteboard_count + ?),
             flag_whiteboard_count    = MAX(0, flag_whiteboard_count + ?),
-            noon_whiteboard_count    = MAX(0, noon_whiteboard_count + ?),
-            standby_count            = MAX(0, standby_count + ?)
+            noon_whiteboard_count    = MAX(0, noon_whiteboard_count + ?)
       WHERE staff_id = ?`,
   );
 
   for (const row of previous) {
     adjust.run(
-      -row.blackboard_delta, -row.morning_delta, -row.flag_delta,
-      -row.noon_delta, -row.standby_delta, row.staff_id,
+      -row.blackboard_delta, -row.morning_delta, -row.flag_delta, -row.noon_delta, row.staff_id,
     );
   }
   db.prepare('DELETE FROM fairness_ledger WHERE schedule_id = ?').run(scheduleId);
@@ -90,7 +87,7 @@ export function settleFairness(db, scheduleId) {
   const deltas = new Map();
   const bump = (staffId) => {
     if (!deltas.has(staffId)) {
-      deltas.set(staffId, { blackboard: 0, morning: 0, flag: 0, noon: 0, standby: 0 });
+      deltas.set(staffId, { blackboard: 0, morning: 0, flag: 0, noon: 0 });
     }
     return deltas.get(staffId);
   };
@@ -104,12 +101,6 @@ export function settleFairness(db, scheduleId) {
   for (const row of repo.listScheduleItems(db, scheduleId)) {
     if (row.staff_id == null) continue;
 
-    // 預備隊整週待命，計入 standby_count 以輪替待命權，不計入工作量
-    if (row.is_plan_b_standby) {
-      bump(row.staff_id).standby += 1;
-      continue;
-    }
-
     const item = items.get(row.item_id);
     if (!item) continue;
 
@@ -120,16 +111,16 @@ export function settleFairness(db, scheduleId) {
 
   const insertLedger = db.prepare(
     `INSERT INTO fairness_ledger
-       (schedule_id, staff_id, blackboard_delta, morning_delta, flag_delta, noon_delta, standby_delta, applied_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, blackboard_delta, morning_delta, flag_delta, noon_delta, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const ensureStat = db.prepare('INSERT OR IGNORE INTO fairness_stats (staff_id) VALUES (?)');
   const stamp = nowIso();
 
   for (const [staffId, d] of deltas) {
     ensureStat.run(staffId);
-    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.flag, d.noon, d.standby, stamp);
-    adjust.run(d.blackboard, d.morning, d.flag, d.noon, d.standby, staffId);
+    insertLedger.run(scheduleId, staffId, d.blackboard, d.morning, d.flag, d.noon, stamp);
+    adjust.run(d.blackboard, d.morning, d.flag, d.noon, staffId);
   }
 }
 
@@ -283,9 +274,7 @@ function buildCapacitySummary(db, items) {
     masters,
     shifts,
     peak_slots: peak,
-    // 尖峰時段之外還剩幾位師傅；這就是能留作 Plan Y 預備隊的上限
     headroom,
-    standby_capacity: Math.max(0, Math.min(STANDBY_MAX, headroom)),
     feasible: peak <= masters,
   };
 }
@@ -300,7 +289,7 @@ export function getWeekView(db, rawWeek) {
   const items = repo.listItems(db);
   const itemMap = new Map(items.map((i) => [i.item_id, i]));
 
-  const openSlots = rows.filter((r) => r.staff_id == null && !r.is_plan_b_standby);
+  const openSlots = rows.filter((r) => r.staff_id == null);
   const warnings = openSlots.map((r) => ({
     code: WARNING.UNDERSTAFFED,
     detail_id: r.detail_id,
@@ -323,10 +312,7 @@ export function getWeekView(db, rawWeek) {
     staff: repo.listStaff(db),
     groups: repo.listGroups(db),
     items,
-    assignments: rows.filter((r) => !r.is_plan_b_standby),
-    standby: rows.filter((r) => r.is_plan_b_standby)
-      .sort((a, b) => a.slot_index - b.slot_index)
-      .map((r) => ({ detail_id: r.detail_id, staff_id: r.staff_id })),
+    assignments: rows,
     absences: absencesForWeek(db, weekStartDate),
     fairness: repo.listFairness(db),
     published_weeks: repo.countPublishedWeeks(db),

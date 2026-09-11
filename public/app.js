@@ -163,7 +163,34 @@ function renderDayStrip() {
     chip.addEventListener('click', () => { state.day = day; render(); });
     strip.append(chip);
   }
-  strip.hidden = state.tab === 'stats' || state.tab === 'standby';
+  // 只有白板需要選日；黑板已是整週表格，公差與統計跟單日無關
+  strip.hidden = state.tab !== 'whiteboard';
+}
+
+
+/* ---------- 表格 ---------- */
+
+function table(className = '') {
+  const wrap = el('div', 'tablewrap');
+  const node = el('table', `sched ${className}`.trim());
+  wrap.append(node);
+  return { wrap, table: node };
+}
+
+function captionRow(title, meta) {
+  const head = el('div', 'sched-caption');
+  head.append(el('h2', null, title));
+  if (meta) head.append(el('span', null, meta));
+  return head;
+}
+
+/** 一格名牌；沒有名額時顯示灰底破折號。 */
+function slotCell(slots, index, boardKind, day) {
+  const cell = el('td');
+  const slot = slots[index];
+  if (!slot) { cell.append(el('span', 'cell-text', '—')); return cell; }
+  cell.append(tagEl(slot, boardKind, day));
+  return cell;
 }
 
 /* ---------- 視圖：黑板 ---------- */
@@ -175,42 +202,67 @@ function renderBlackboard() {
   if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
   view.classList.add('stagger');
 
-  const openToday = state.data.warnings.filter((w) => w.day_of_week === state.day || w.day_of_week === null);
-  if (openToday.length) view.append(noticeEl(`本日尚有 ${openToday.length} 個名額待補`, 'ruby'));
+  const gaps = state.data.warnings.filter((w) => {
+    const item = state.itemsById.get(w.item_id);
+    return item && item.board_type === 'BLACKBOARD';
+  });
+  if (gaps.length) view.append(noticeEl(`黑板還有 ${gaps.length} 個名額待補`, 'ruby'));
 
-  // 全週固定職務
-  const weekCard = el('div', 'card');
-  const weekHead = el('div', 'card__title');
-  weekHead.append(el('h3', null, '全週固定職務'), badge('1 週 1 次', 'sapphire'));
-  weekCard.append(weekHead);
-  for (const item of itemsOf('BLACKBOARD', 'ALL_WEEK')) {
-    weekCard.append(dutyRow(item, null));
+  // 每日輪替職務：一列一個任務，五欄對應週一到週五
+  const daily = itemsOf('BLACKBOARD', 'DAILY');
+  if (daily.length) {
+    view.append(captionRow('每日輪替職務', `${daily.length} 項 × 5 天`));
+
+    const { wrap, table: node } = table('sched--week');
+    const thead = el('thead');
+    const headRow = el('tr');
+    headRow.append(el('th', null, ''));
+    for (const day of [1, 2, 3, 4, 5]) {
+      const th = el('th', null, `週${DAY_NAMES[day]}`);
+      th.scope = 'col';
+      if (state.data.schedule.dates[day] === todayIso()) th.style.color = 'var(--ink)';
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    node.append(thead);
+
+    const tbody = el('tbody');
+    for (const item of daily) {
+      const row = el('tr');
+      const label = el('th', null, item.item_name);
+      label.scope = 'row';
+      row.append(label);
+      for (const day of [1, 2, 3, 4, 5]) {
+        row.append(slotCell(slotsOf(item.item_id, day), 0, 'BLACKBOARD', day));
+      }
+      tbody.append(row);
+    }
+    node.append(tbody);
+    view.append(wrap);
   }
-  view.append(weekCard);
 
-  // 每日輪替職務
-  const dayCard = el('div', 'card');
-  const dayHead = el('div', 'card__title');
-  dayHead.append(el('h3', null, '每日輪替職務'), badge(`週${DAY_NAMES[state.day]}`, 'sapphire'));
-  dayCard.append(dayHead);
-  for (const item of itemsOf('BLACKBOARD', 'DAILY')) {
-    dayCard.append(dutyRow(item, state.day));
+  // 全週固定職務：整週一人，跟日期無關
+  const weekly = itemsOf('BLACKBOARD', 'ALL_WEEK');
+  if (weekly.length) {
+    view.append(captionRow('全週固定職務', '1 週 1 次'));
+
+    const { wrap, table: node } = table('sched--pair');
+    const tbody = el('tbody');
+    for (const item of weekly) {
+      const row = el('tr');
+      const label = el('th', null, item.item_name);
+      label.scope = 'row';
+      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD', null));
+      tbody.append(row);
+    }
+    node.append(tbody);
+    view.append(wrap);
   }
-  view.append(dayCard);
 
-  const away = absencesOn(state.day);
+  const away = state.data.absences;
   if (away.length) {
-    view.append(noticeEl(`本日公差／請假：${away.map((a) => a.name).join('、')}`, 'topaz'));
+    view.append(noticeEl(`本週公差／請假：${away.map((a) => `${a.name}（週${DAY_NAMES[a.day_of_week] ?? '—'}）`).join('、')}`, 'topaz'));
   }
-}
-
-function dutyRow(item, day) {
-  const row = el('div', 'duty');
-  row.append(el('span', 'duty__label', item.item_name));
-  const slots = el('div', 'duty__slots');
-  for (const s of slotsOf(item.item_id, day)) slots.append(tagEl(s, 'BLACKBOARD', day));
-  row.append(slots);
-  return row;
 }
 
 /* ---------- 視圖：白板 ---------- */
@@ -235,141 +287,99 @@ function renderWhiteboard() {
   }
   view.append(seg);
 
-  const accent = SHIFT_COLOR[state.shift];
   const items = itemsOf('WHITEBOARD', state.shift);
   const daySlots = items.flatMap((i) => slotsOf(i.item_id, state.day));
   const filled = daySlots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
-  const head = el('div', 'section-head');
-  head.append(el('h2', null, `${SHIFT_LABEL[state.shift]} · 週${DAY_NAMES[state.day]}`));
-  const meta = el('span', 'section-head__meta');
-  meta.append(el('span', 'mono', `${filled}/${total}`), document.createTextNode(' 名額'));
-  head.append(meta);
-  view.append(head);
+  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 週${DAY_NAMES[state.day]}`, `${filled}/${total} 名額`));
 
-  // 升旗底下分「定點」與「巡查」；其他時段沒有分區。
-  // 點位以列呈現而非一點一卡——19 個點位攤成 19 張卡要滑很久，
-  // 而且實體白板本來就是一行一個點位。
-  const groups = new Map();
+  const { wrap, table: node } = table();
+  const thead = el('thead');
+  const headRow = el('tr');
+  for (const label of ['點位', '人員']) {
+    const th = el('th', null, label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  node.append(thead);
+
+  const tbody = el('tbody');
+  let currentZone = null;
+
   for (const item of items) {
+    // 升旗底下分定點與巡查，用整列標題隔開
     const zone = item.zone || '';
-    if (!groups.has(zone)) groups.set(zone, []);
-    groups.get(zone).push(item);
+    if (zone && zone !== currentZone) {
+      const zoneRow = el('tr', 'zone-row');
+      const th = el('th', null, zone);
+      th.colSpan = 2;
+      th.scope = 'colgroup';
+      zoneRow.append(th);
+      tbody.append(zoneRow);
+      currentZone = zone;
+    }
+
+    const slots = slotsOf(item.item_id, state.day);
+    // 一個點位排多人時，每人各佔一列，點位名用 rowspan 合併
+    for (let i = 0; i < Math.max(1, slots.length); i += 1) {
+      const row = el('tr');
+      if (i === 0) {
+        const label = el('th', null, item.item_name);
+        label.scope = 'row';
+        if (slots.length > 1) label.rowSpan = slots.length;
+        row.append(label);
+      }
+      row.append(slotCell(slots, i, state.shift, state.day));
+      tbody.append(row);
+    }
   }
 
-  for (const [zone, zoneItems] of groups) {
-    if (zone) {
-      const zoneHead = el('div', 'zone-head');
-      zoneHead.append(el('h3', null, zone));
-      view.append(zoneHead);
-    }
-    const card = el('div', 'card card--flush');
-    for (const item of zoneItems) card.append(spotRow(item, accent));
-    view.append(card);
-  }
+  node.append(tbody);
+  view.append(wrap);
 }
 
-function spotRow(item, accent) {
-  const slots = slotsOf(item.item_id, state.day);
-  const on = slots.filter((s) => s.staff_id != null).length;
+/* ---------- 視圖：公差 ---------- */
 
-  const row = el('div', 'spot-row');
-  row.append(el('span', 'spot-row__name', item.item_name));
-
-  const tags = el('div', 'spot__tags');
-  for (const slot of slots) tags.append(tagEl(slot, state.shift, state.day));
-  row.append(tags);
-
-  // 只有一個名額時，名牌本身就說明了滿或缺，不需要再畫刻度
-  if (item.required_capacity > 1) {
-    const dots = el('div', 'dots');
-    for (let i = 0; i < item.required_capacity; i += 1) {
-      const d = el('i', `dot${i < on ? ' dot--on' : ''}`);
-      if (i < on) d.style.setProperty('--accent', accent);
-      dots.append(d);
-    }
-    row.append(dots);
-  }
-
-  return row;
-}
-
-/* ---------- 視圖：備援 ---------- */
-
-function renderStandby() {
-  const view = $('#view-standby');
+function renderAbsence() {
+  const view = $('#view-absence');
   view.replaceChildren();
   view.classList.add('stagger');
 
-  // Plan Y 預備隊
-  const planY = el('div', 'card');
-  const head = el('div', 'card__title');
-  head.append(el('h3', null, 'Plan Y 本週預備隊'), badge('師傅・整週待命', 'topaz'));
-  planY.append(head);
-
-  if (state.data.standby.length === 0) {
-    planY.append(el('p', 'field__hint', '尚未生成班表，預備隊會在自動排班後產生。'));
-  } else {
-    const tags = el('div', 'spot__tags');
-    for (const s of state.data.standby) {
-      const t = tagEl({ detail_id: s.detail_id, staff_id: s.staff_id, is_override: false }, 'STANDBY', null);
-      t.dataset.standby = '1';
-      tags.append(t);
-    }
-    planY.append(tags);
-    planY.append(el('p', 'field__hint', '這幾位整週不排任何點位與黑板任務，臨時缺人時 Plan X 會優先推薦。待命次數會輪替，不會固定同一批人。'));
-    const cap = state.data.capacity;
-    if (cap && cap.standby_capacity < 3) {
-      planY.append(el('p', 'field__hint', `師傅 ${cap.masters} 位、尖峰時段需要 ${cap.peak_slots} 個名額，最多只能留 ${cap.standby_capacity} 位待命。`));
-    }
-  }
-  view.append(planY);
-
-  // 待補名額
-  const gaps = state.data.warnings;
-  const gapCard = el('div', 'card');
-  const gapHead = el('div', 'card__title');
-  gapHead.append(el('h3', null, '待補名額'), badge(String(gaps.length), gaps.length ? 'ruby' : 'emerald'));
-  gapCard.append(gapHead);
-
-  if (gaps.length === 0) {
-    gapCard.append(el('p', 'field__hint', '所有名額都已排滿。'));
-  } else {
-    const list = el('div', 'rowlist');
-    for (const g of gaps.slice(0, 30)) {
-      const row = el('div', 'rowitem');
-      const main = el('div', 'rowitem__main');
-      const item = state.itemsById.get(g.item_id);
-      const shiftName = item && item.board_type === 'WHITEBOARD' ? SHIFT_LABEL[item.shift_type] : '黑板';
-      main.append(el('div', 'rowitem__title', g.item_name ?? '未知點位'));
-      main.append(el('div', 'rowitem__sub', `${shiftName} · ${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'}`));
-      const btn = el('button', 'btn btn--sm btn--quiet', '補位');
-      btn.type = 'button';
-      btn.addEventListener('click', () => openPlanX(g.detail_id));
-      row.append(main, btn);
-      list.append(row);
-    }
-    gapCard.append(list);
-  }
-  view.append(gapCard);
-
-  // 公差 / 請假
-  const absCard = el('div', 'card');
-  const absHead = el('div', 'card__title');
-  absHead.append(el('h3', null, '公差／請假'), badge(String(state.data.absences.length), 'topaz'));
-  absCard.append(absHead);
+  // 公差／請假
+  view.append(captionRow('公差／請假', `${state.data.absences.length} 筆`));
 
   if (state.data.absences.length === 0) {
-    absCard.append(el('p', 'field__hint', '本週尚無登錄紀錄。公差僅作行程提示，不計入公平性統計。'));
+    const empty = el('div', 'card');
+    empty.append(el('p', 'field__hint', '本週尚無登錄紀錄。公差僅作行程提示，不計入公平性統計；排班時會自動避開登錄者當天。'));
+    view.append(empty);
   } else {
-    const list = el('div', 'rowlist');
+    const { wrap, table: node } = table();
+    const thead = el('thead');
+    const headRow = el('tr');
+    for (const label of ['人員', '日期', '類型', '']) {
+      const th = el('th', null, label);
+      th.scope = 'col';
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    node.append(thead);
+
+    const tbody = el('tbody');
     for (const a of state.data.absences) {
-      const row = el('div', 'rowitem');
-      const main = el('div', 'rowitem__main');
-      main.append(el('div', 'rowitem__title', a.name));
-      main.append(el('div', 'rowitem__sub',
-        `${shortDate(a.absence_date)}（週${DAY_NAMES[a.day_of_week] ?? '—'}）· ${a.absence_type === 'OFFICIAL' ? '公差' : '請假'}${a.note ? ` · ${a.note}` : ''}`));
+      const row = el('tr');
+
+      const who = el('th', null, '');
+      who.scope = 'row';
+      who.append(document.createTextNode(a.name));
+      if (a.note) who.append(el('span', 'cell-sub', a.note));
+      row.append(who);
+
+      row.append(el('td', 'cell-text', `${shortDate(a.absence_date)}（${DAY_NAMES[a.day_of_week] ?? '—'}）`));
+      row.append(el('td', 'cell-text', a.absence_type === 'OFFICIAL' ? '公差' : '請假'));
+
+      const action = el('td', 'cell-action');
       const del = el('button', 'iconbtn');
       del.type = 'button';
       del.setAttribute('aria-label', `刪除 ${a.name} 的紀錄`);
@@ -378,19 +388,67 @@ function renderStandby() {
         absorb(await api(`/api/absences/${a.absence_id}?week=${state.week}`, { method: 'DELETE' }));
         toast('已刪除紀錄');
       });
-      row.append(main, del);
-      list.append(row);
+      action.append(del);
+      row.append(action);
+
+      tbody.append(row);
     }
-    absCard.append(list);
+    node.append(tbody);
+    view.append(wrap);
   }
 
-  const addBtn = el('button', 'btn btn--block btn--quiet');
+  const addBtn = el('button', 'btn btn--block btn--primary');
   addBtn.type = 'button';
-  addBtn.style.marginTop = '12px';
   addBtn.append(icon('i-calendar'), el('span', null, '登錄公差／請假'));
   addBtn.addEventListener('click', openAbsenceSheet);
-  absCard.append(addBtn);
-  view.append(absCard);
+  view.append(addBtn);
+
+  // 待補名額
+  const gaps = state.data.warnings;
+  view.append(captionRow('待補名額', `${gaps.length} 個`));
+
+  if (gaps.length === 0) {
+    const done = el('div', 'card');
+    done.append(el('p', 'field__hint', '所有名額都已排滿。'));
+    view.append(done);
+    return;
+  }
+
+  const { wrap, table: node } = table();
+  const thead = el('thead');
+  const headRow = el('tr');
+  for (const label of ['點位', '時段', '']) {
+    const th = el('th', null, label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  node.append(thead);
+
+  const tbody = el('tbody');
+  for (const g of gaps.slice(0, 40)) {
+    const item = state.itemsById.get(g.item_id);
+    const shiftName = item && item.board_type === 'WHITEBOARD' ? SHIFT_LABEL[item.shift_type] : '黑板';
+
+    const row = el('tr');
+    const label = el('th', null, g.item_name ?? '未知點位');
+    label.scope = 'row';
+    row.append(label);
+    row.append(el('td', 'cell-text', `${shiftName}・${g.day_of_week ? `週${DAY_NAMES[g.day_of_week]}` : '全週'}`));
+
+    const action = el('td', 'cell-action');
+    const fill = el('button', 'iconbtn');
+    fill.type = 'button';
+    fill.setAttribute('aria-label', `補 ${g.item_name} 的空缺`);
+    fill.append(icon('i-plus'));
+    fill.addEventListener('click', () => openPlanX(g.detail_id));
+    action.append(fill);
+    row.append(action);
+
+    tbody.append(row);
+  }
+  node.append(tbody);
+  view.append(wrap);
 }
 
 /* ---------- 視圖：統計 ---------- */
@@ -398,10 +456,6 @@ function renderStandby() {
 /**
  * 輪替均衡度：整數分配下，人人次數相差不超過 1 次即為完全公平（100%）。
  * 差距每多出 1 次，就相對於「最差可能差距」等比扣分。
- *
- * Plan Y 預備隊整週待命是刻意安排，不該被算成「被排得比較少」。
- * 因此計算時把待命週折算回來：每待命一週，補上該維度的每人每週平均值。
- * 環下顯示的 min–max 仍是實際次數，不做修飾。
  */
 function balance(rows, key) {
   if (rows.length === 0) return { pct: 100, min: 0, max: 0 };
@@ -409,14 +463,10 @@ function balance(rows, key) {
   const counts = rows.map((r) => r[key]);
   const min = Math.min(...counts);
   const max = Math.max(...counts);
+  const spread = max - min;
 
-  const weeks = state.data.published_weeks ?? 0;
-  const perWeek = weeks > 0 ? counts.reduce((sum, n) => sum + n, 0) / (rows.length * weeks) : 0;
-  const adjusted = rows.map((r) => r[key] + (r.standby_count ?? 0) * perWeek);
-
-  const spread = Math.max(...adjusted) - Math.min(...adjusted);
   if (spread <= 1) return { pct: 100, min, max };
-  const worst = Math.max(1, Math.max(...adjusted) - 1);
+  const worst = Math.max(1, max - 1);
   return { pct: Math.max(0, Math.round((1 - (spread - 1) / worst) * 100)), min, max };
 }
 
@@ -475,7 +525,7 @@ function renderStats() {
     for (const sh of cap.shifts ?? []) {
       list.append(line(`${sh.label}名額`, sh.slots, `${sh.points} 個點位`));
     }
-    list.append(line('可留待命人數', cap.standby_capacity, `師傅數減去尖峰名額 ${cap.peak_slots}`));
+    list.append(line('尖峰時段用量', `${cap.peak_slots}/${cap.masters}`, '單一時段每人只能站一個點位'));
     supply.append(list);
 
     if (!cap.feasible) {
@@ -495,8 +545,13 @@ function renderStats() {
       rings.append(ringEl(d.label, balance(activeMasters, d.key), d.color));
     }
     card.append(rings);
-    card.append(el('p', 'field__hint', '人人次數相差不超過 1 次即為 100%，Plan Y 待命週已折算回來；環下數字為實際的最少與最多次數。'));
+    card.append(el('p', 'field__hint', '人人次數相差不超過 1 次即為 100%；環下數字為實際的最少與最多次數。'));
     view.append(card);
+  }
+
+  const idle = activeMasters.filter((f) => DIMENSIONS.every((d) => f[d.key] === 0));
+  if (idle.length > 0 && (state.data.published_weeks ?? 0) > 0) {
+    view.append(noticeEl(`累計仍為零任務：${idle.map((f) => f.name).join('、')}`, 'ruby'));
   }
 
   const legend = el('div', 'legend');
@@ -549,7 +604,7 @@ function rosterSection(title, rows, withLoad) {
     nameWrap.append(document.createTextNode(r.name));
     if (withLoad) {
       const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label} ${r[d.key]}`).join('・')}`;
-      nameWrap.append(el('span', null, r.standby_count ? `${sub}・待命 ${r.standby_count}` : sub));
+      nameWrap.append(el('span', null, sub));
     } else {
       nameWrap.append(el('span', null, `${r.staff_group}・點選可升級為師傅`));
     }
@@ -593,7 +648,7 @@ function emptyState() {
   const wrap = el('div', 'empty');
   wrap.append(icon('i-bolt'));
   wrap.append(el('h3', null, '本週尚未排班'));
-  wrap.append(el('p', null, '按下方中央的按鈕，系統會依歷史次數由少到多自動填滿黑板與白板，並選出 Plan Y 預備隊。'));
+  wrap.append(el('p', null, '按下方中央的按鈕，系統會依歷史次數由少到多自動填滿黑板與白板，每位師傅都會排到任務。'));
   return wrap;
 }
 
@@ -648,7 +703,7 @@ async function openPlanX(detailId) {
   const current = info.current_staff_id ? staffName(info.current_staff_id) : '空缺';
 
   openSheet(`${info.item.item_name}`, `${shiftLabel} · ${dayLabel} · 目前：${current}`, (body) => {
-    body.append(el('p', 'field__hint', '只有師傅能排班，因此名單僅列出師傅。Plan X 依序推薦 Plan Y 預備隊與負擔最輕者；主管可強制指派，衝突僅提示不阻擋。'));
+    body.append(el('p', 'field__hint', '只有師傅能排班，因此名單僅列出師傅，並依目前負擔由輕到重排序。主管可強制指派，衝突僅提示不阻擋。'));
 
     for (const c of info.candidates) {
       body.append(candidateRow(detailId, c, shiftLabel));
@@ -682,16 +737,15 @@ async function openPlanX(detailId) {
 }
 
 function candidateRow(detailId, c, shiftLabel) {
-  const btn = el('button', `cand${c.is_standby ? ' cand--best' : ''}`);
+  const btn = el('button', 'cand');
   btn.type = 'button';
 
   const main = el('div', 'cand__main');
   main.append(el('div', 'cand__name', c.name));
 
-  // 只在有話要說時才加標籤：預備隊身分、或會踩到的限制
-  if (c.is_standby || c.conflicts.length) {
+  // 只在會踩到限制時才加標籤
+  if (c.conflicts.length) {
     const why = el('div', 'cand__why');
-    if (c.is_standby) why.append(badge('Plan Y 預備隊', 'topaz'));
     for (const conflict of c.conflicts) why.append(badge(conflict.label, 'ruby'));
     main.append(why);
   }
@@ -720,14 +774,15 @@ async function assign(detailId, staffId) {
 /* ---------- 公差登錄 ---------- */
 
 function openAbsenceSheet() {
-  openSheet('登錄公差／請假', '僅作行程提示，不影響公平性統計', (body) => {
+  openSheet('登錄公差／請假', '只列出師傅；登錄後重新排班會自動避開當天', (body) => {
     const staffField = el('div', 'field');
     const staffLabel = el('label', null, '人員');
     staffLabel.setAttribute('for', 'absStaff');
     const staffSelect = el('select');
     staffSelect.id = 'absStaff';
-    for (const s of state.data.staff.filter((s) => s.is_active)) {
-      staffSelect.append(new Option(s.name, String(s.staff_id)));
+    // 徒弟不排班，登錄他們的公差沒有意義
+    for (const person of state.data.staff.filter((p) => p.is_active && p.role === 'MASTER')) {
+      staffSelect.append(new Option(person.name, String(person.staff_id)));
     }
     staffField.append(staffLabel, staffSelect);
 
@@ -796,7 +851,7 @@ function openStaffSheet(person) {
   const isMaster = person.role === 'MASTER';
   const total = DIMENSIONS.reduce((sum, d) => sum + person[d.key], 0);
   const subtitle = isMaster
-    ? `${person.staff_group} · 師傅 · 累計 ${total} 次任務 · 待命 ${person.standby_count ?? 0} 次`
+    ? `${person.staff_group} · 師傅 · 累計 ${total} 次任務`
     : `${person.staff_group} · 徒弟 · 不排班`;
 
   openSheet(person.name, subtitle, (body) => {
@@ -1348,7 +1403,7 @@ function endDrag() {
 
 document.addEventListener('pointerdown', (e) => {
   const tag = e.target.closest?.('.tag');
-  if (!tag || tag.dataset.standby === '1' || tag.classList.contains('tag--empty')) return;
+  if (!tag || tag.classList.contains('tag--empty')) return;
   drag.armed = true;
   drag.fromId = Number(tag.dataset.detailId);
   drag.startX = e.clientX;
@@ -1378,7 +1433,7 @@ document.addEventListener('pointermove', (e) => {
   const over = tagFromPoint(e.clientX, e.clientY);
   if (over !== drag.target) {
     clearDropHint();
-    if (over && Number(over.dataset.detailId) !== drag.fromId && over.dataset.standby !== '1') {
+    if (over && Number(over.dataset.detailId) !== drag.fromId) {
       over.classList.add('tag--dropzone');
       drag.target = over;
     }
@@ -1406,7 +1461,6 @@ document.addEventListener('pointerup', async (e) => {
   // 未拖曳＝單擊，開啟換人面板
   const tag = e.target.closest?.('.tag');
   if (!tag) return;
-  if (tag.dataset.standby === '1') { toast('預備隊成員請由待補名額指派'); return; }
   openPlanX(Number(tag.dataset.detailId));
 });
 
@@ -1450,7 +1504,7 @@ function render() {
 
   if (state.tab === 'blackboard') renderBlackboard();
   else if (state.tab === 'whiteboard') renderWhiteboard();
-  else if (state.tab === 'standby') renderStandby();
+  else if (state.tab === 'absence') renderAbsence();
   else renderStats();
 }
 
@@ -1483,8 +1537,13 @@ function bindChrome() {
     }
     const result = await api('/api/week/generate', { method: 'POST', body: { week: state.week } });
     absorb(result);
-    const gaps = result.generationWarnings?.filter((w) => w.code === 'UNDERSTAFFED').length ?? 0;
-    toast(gaps ? `排班完成，${gaps} 個名額人力不足` : '排班完成，已選出 Plan Y 預備隊');
+    const warnings = result.generationWarnings ?? [];
+    const gaps = warnings.filter((w) => w.code === 'UNDERSTAFFED').length;
+    const idle = warnings.find((w) => w.code === 'IDLE_STAFF');
+
+    if (gaps) toast(`排班完成，${gaps} 個名額人力不足`, 'error');
+    else if (idle) toast(`排班完成，但 ${idle.names.join('、')} 整週沒有任務`, 'error');
+    else toast('排班完成，每位師傅都有任務');
   });
 
   $('#publishBtn').addEventListener('click', async () => {

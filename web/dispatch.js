@@ -43,7 +43,7 @@ async function api(path, { method = 'GET', body } = {}) {
     await ensureWeekLoaded(week);
     if (STATE.items.length === 0) bad('還沒有任何點位，請先到設定新增');
     if (countMasters() === 0) bad('還沒有可排班的師傅，請先到設定新增或把徒弟升級');
-    const view = generate(week, { standbyCount: body?.standby_count ?? STANDBY_MAX });
+    const view = generate(week);
     await Promise.all([saveWeek(week), saveConfig()]);
     return view;
   }

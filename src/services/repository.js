@@ -120,8 +120,7 @@ export function listFairness(db) {
             COALESCE(f.blackboard_count, 0)         AS blackboard_count,
             COALESCE(f.morning_whiteboard_count, 0) AS morning_whiteboard_count,
             COALESCE(f.flag_whiteboard_count, 0)    AS flag_whiteboard_count,
-            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count,
-            COALESCE(f.standby_count, 0)            AS standby_count
+            COALESCE(f.noon_whiteboard_count, 0)    AS noon_whiteboard_count
        FROM staff s LEFT JOIN fairness_stats f ON f.staff_id = s.staff_id
       ORDER BY s.sort_order, s.staff_id`,
   ).all().map((r) => ({ ...r, is_active: !!r.is_active }));
@@ -131,7 +130,7 @@ export function fairnessMap(db) {
   return new Map(listFairness(db).map((r) => [r.staff_id, r]));
 }
 
-/** 已發布的週數；用於把預備隊的待命週折算回公平性比較。 */
+/** 已發布的週數，供統計頁換算每週平均。 */
 export function countPublishedWeeks(db) {
   return db.prepare("SELECT COUNT(*) AS n FROM weekly_schedules WHERE status = 'PUBLISHED'").get().n;
 }
@@ -154,28 +153,24 @@ export function createSchedule(db, weekStartDate) {
 export function listScheduleItems(db, scheduleId) {
   return db.prepare(
     `SELECT detail_id, schedule_id, staff_id, item_id, day_of_week,
-            is_plan_b_standby, is_override, slot_index
+            is_override, slot_index
        FROM schedule_items WHERE schedule_id = ?
       ORDER BY day_of_week, item_id, slot_index, detail_id`,
-  ).all(scheduleId).map((r) => ({
-    ...r,
-    is_plan_b_standby: !!r.is_plan_b_standby,
-    is_override: !!r.is_override,
-  }));
+  ).all(scheduleId).map((r) => ({ ...r, is_override: !!r.is_override }));
 }
 
 export function findScheduleItem(db, detailId) {
   const row = db.prepare('SELECT * FROM schedule_items WHERE detail_id = ?').get(detailId);
   if (!row) return null;
-  return { ...row, is_plan_b_standby: !!row.is_plan_b_standby, is_override: !!row.is_override };
+  return { ...row, is_override: !!row.is_override };
 }
 
 export function replaceScheduleItems(db, scheduleId, assignments) {
   db.prepare('DELETE FROM schedule_items WHERE schedule_id = ?').run(scheduleId);
   const insert = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_plan_b_standby, is_override, slot_index)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   );
   for (const a of assignments) {
     insert.run(
@@ -183,7 +178,6 @@ export function replaceScheduleItems(db, scheduleId, assignments) {
       a.staff_id ?? null,
       a.item_id ?? null,
       a.day_of_week ?? null,
-      a.is_plan_b_standby ? 1 : 0,
       a.is_override ? 1 : 0,
       a.slot_index ?? 0,
     );
@@ -234,7 +228,6 @@ export function exportAll(db) {
         morning_delta: 'morning_whiteboard_count',
         flag_delta: 'flag_whiteboard_count',
         noon_delta: 'noon_whiteboard_count',
-        standby_delta: 'standby_count',
       })) {
         if (row[column]) delta[field] = row[column];
       }
@@ -252,7 +245,6 @@ export function exportAll(db) {
         staff_id: r.staff_id,
         item_id: r.item_id,
         day_of_week: r.day_of_week,
-        is_plan_b_standby: r.is_plan_b_standby,
         is_override: r.is_override,
         slot_index: r.slot_index,
       })),
@@ -272,7 +264,6 @@ export function exportAll(db) {
       morning_whiteboard_count: row.morning_whiteboard_count,
       flag_whiteboard_count: row.flag_whiteboard_count,
       noon_whiteboard_count: row.noon_whiteboard_count,
-      standby_count: row.standby_count,
     };
   }
 
@@ -318,12 +309,12 @@ export function importAll(db, data) {
 
   const insertStat = db.prepare(
     `INSERT INTO fairness_stats (staff_id, blackboard_count, morning_whiteboard_count,
-       flag_whiteboard_count, noon_whiteboard_count, standby_count) VALUES (?, ?, ?, ?, ?, ?)`,
+       flag_whiteboard_count, noon_whiteboard_count) VALUES (?, ?, ?, ?, ?)`,
   );
   for (const s of data.staff) {
     const f = data.fairness?.[s.staff_id] ?? {};
     insertStat.run(s.staff_id, f.blackboard_count ?? 0, f.morning_whiteboard_count ?? 0,
-      f.flag_whiteboard_count ?? 0, f.noon_whiteboard_count ?? 0, f.standby_count ?? 0);
+      f.flag_whiteboard_count ?? 0, f.noon_whiteboard_count ?? 0);
   }
 
   const insertSchedule = db.prepare(
@@ -331,8 +322,8 @@ export function importAll(db, data) {
   );
   const insertRow = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_plan_b_standby, is_override, slot_index)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   );
   const insertAbsence = db.prepare(
     'INSERT INTO staff_absences (staff_id, absence_date, absence_type, note) VALUES (?, ?, ?, ?)',
@@ -340,7 +331,7 @@ export function importAll(db, data) {
   // 帳本一定要跟著還原，否則之後撤回發布會沖銷不掉已累加的次數
   const insertLedger = db.prepare(
     `INSERT INTO fairness_ledger (schedule_id, staff_id, blackboard_delta, morning_delta,
-       flag_delta, noon_delta, standby_delta, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       flag_delta, noon_delta, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
 
   for (const [week, data_] of Object.entries(data.weeks ?? {})) {
@@ -350,7 +341,7 @@ export function importAll(db, data) {
 
     for (const r of data_.rows ?? []) {
       insertRow.run(scheduleId, r.staff_id ?? null, r.item_id ?? null, r.day_of_week ?? null,
-        r.is_plan_b_standby ? 1 : 0, r.is_override ? 1 : 0, r.slot_index ?? 0);
+        r.is_override ? 1 : 0, r.slot_index ?? 0);
     }
     for (const a of data_.absences ?? []) {
       insertAbsence.run(a.staff_id, a.absence_date, a.absence_type ?? 'OFFICIAL', a.note ?? null);
@@ -359,7 +350,7 @@ export function importAll(db, data) {
       insertLedger.run(scheduleId, Number(staffId),
         delta.blackboard_count ?? 0, delta.morning_whiteboard_count ?? 0,
         delta.flag_whiteboard_count ?? 0, delta.noon_whiteboard_count ?? 0,
-        delta.standby_count ?? 0, data_.published_at ?? new Date().toISOString());
+        data_.published_at ?? new Date().toISOString());
     }
   }
 

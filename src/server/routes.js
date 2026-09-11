@@ -48,9 +48,7 @@ export function buildRouter(db) {
 
   // ---- 一鍵自動排班 ----
   router.post('/api/week/generate', ({ body }) => {
-    const week = requireWeek(body.week);
-    const standbyCount = body.standby_count ?? 3;
-    return schedule.generate(db, week, { standbyCount });
+    return schedule.generate(db, requireWeek(body.week));
   });
 
   // ---- 發布 / 撤回 ----

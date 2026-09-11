@@ -590,3 +590,94 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .admin-form { display: flex; flex-direction: column; gap: 10px; }
 .admin-form__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .admin-form__grid .field { min-width: 0; }
+
+/* ---- 16. 班表表格 ---- */
+.tablewrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sched {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sched th,
+.sched td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  text-align: left;
+  vertical-align: middle;
+}
+.sched th:last-child,
+.sched td:last-child { border-right: 0; }
+.sched tr:last-child td { border-bottom: 0; }
+
+.sched thead th {
+  padding: 9px 10px;
+  background: var(--sunken);
+  font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.sched thead th:first-child { text-align: left; }
+
+/* 列首（點位名／任務名） */
+.sched th[scope="row"] {
+  padding: 6px 10px;
+  font-size: 13px; font-weight: 700; line-height: 1.3;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--sunken) 55%, transparent);
+  min-width: 96px;
+}
+
+/* 分區標題列（升旗的定點／巡查） */
+.sched .zone-row th {
+  padding: 7px 10px;
+  background: var(--track);
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  color: var(--ink-2);
+}
+
+/* 名牌塞在儲存格裡，撐滿以擴大觸控區 */
+.sched .tag {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 0;
+  justify-content: flex-start;
+  padding: 4px 10px;
+  font-size: 14px;
+  background: transparent;
+  color: var(--chip-ink, var(--ink));
+}
+.sched .tag--empty { border: 0; color: var(--ruby-ink); }
+.sched .tag--empty .icon { width: 16px; height: 16px; }
+.sched .tag:active { transform: none; background: var(--sunken); }
+.sched td:has(.tag--dropzone) { box-shadow: inset 0 0 0 2px var(--sapphire); }
+
+/* 兩欄表（點位｜人員）固定比例，名稱長也不會把人員欄擠掉 */
+.sched--pair th[scope="row"] { width: 58%; }
+
+/* 黑板的每日欄位窄，字級再收一點 */
+.sched--week th[scope="row"] { min-width: 62px; }
+.sched--week td { min-width: 58px; }
+.sched--week .tag { padding: 4px 6px; font-size: 13px; justify-content: center; }
+
+.sched-caption {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 0 4px 6px;
+}
+.sched-caption h2 { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--ink-3); }
+.sched-caption span { font-size: 12px; color: var(--ink-3); }
+
+/* 公差表的操作欄 */
+.sched td.cell-action { width: 44px; }
+.sched td.cell-action .iconbtn { width: 44px; height: 44px; }
+.sched .cell-text { padding: 8px 10px; }
+.sched .cell-sub { display: block; font-size: 12px; color: var(--ink-3); }

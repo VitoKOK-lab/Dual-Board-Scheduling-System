@@ -48,22 +48,23 @@ test('GET /api/week 會把週中任一天收斂到該週週一', async () => {
   });
 });
 
-test('一鍵排班會填滿所有名額並產生 Plan Y 預備隊', async () => {
+test('一鍵排班會填滿所有名額，而且每位師傅都有任務', async () => {
   await withServer(async ({ call }) => {
     const { body } = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
-    const standbyIds = new Set(body.standby.map((s) => s.staff_id));
-    const load = new Map();
-    for (const a of body.assignments) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
 
-    assert.equal(load.size + standbyIds.size, 22, '22 位師傅不是排到班就是在預備隊');
-    for (const id of standbyIds) {
-      assert.ok(!load.has(id), '預備隊整週不應有任何指派');
-    }
     assert.equal(body.schedule.has_items, true);
-    assert.ok(body.assignments.length > 200);
-    assert.ok(body.standby.length >= 2 && body.standby.length <= 3);
     assert.equal(body.warnings.length, 0, '種子資料人力充足，不應有待補名額');
     assert.ok(body.assignments.every((a) => a.staff_id != null));
+    assert.ok(!body.generationWarnings.some((w) => w.code === 'IDLE_STAFF'));
+
+    const load = new Map();
+    for (const a of body.assignments) load.set(a.staff_id, (load.get(a.staff_id) ?? 0) + 1);
+    const masters = body.staff.filter((s) => s.role === 'MASTER');
+
+    assert.equal(load.size, masters.length, '每一位師傅都該排到班');
+    for (const m of masters) {
+      assert.ok((load.get(m.staff_id) ?? 0) > 0, `${m.name} 整週沒有任務`);
+    }
   });
 });
 
@@ -199,7 +200,6 @@ test('停用人員後重新排班不再指派該員', async () => {
     await call(`/api/staff/${master.staff_id}`, { method: 'PATCH', body: { is_active: false } });
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     assert.ok(gen.body.assignments.every((a) => a.staff_id !== master.staff_id));
-    assert.ok(!gen.body.standby.some((s) => s.staff_id === master.staff_id));
   });
 });
 
@@ -256,9 +256,6 @@ test('只有師傅會被排班，徒弟完全不出現在班表', async () => {
       if (a.staff_id == null) continue;
       assert.equal(staff.get(a.staff_id).role, 'MASTER', `${staff.get(a.staff_id).name} 是徒弟卻被排到班`);
     }
-    for (const s of body.standby) {
-      assert.equal(staff.get(s.staff_id).role, 'MASTER', '預備隊也只能是師傅');
-    }
   });
 });
 
@@ -272,17 +269,9 @@ test('供需摘要反映「單一時段名額數不得超過師傅數」', async
     assert.equal(cap.peak_slots, Math.max(...cap.shifts.map((s) => s.slots)));
     assert.equal(cap.headroom, cap.masters - cap.peak_slots);
     assert.equal(cap.feasible, cap.peak_slots <= cap.masters);
-    assert.equal(cap.standby_capacity, Math.max(0, Math.min(3, cap.headroom)));
   });
 });
 
-test('預備隊人數讓位給實際名額，班表不因留待命而出現空缺', async () => {
-  await withServer(async ({ call }) => {
-    const { body } = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
-    assert.equal(body.warnings.length, 0, '不應為了留預備隊而讓名額空著');
-    assert.equal(body.standby.length, body.capacity.standby_capacity);
-  });
-});
 
 test('升級徒弟後，他下次排班就會被指派', async () => {
   await withServer(async ({ call }) => {
@@ -294,11 +283,7 @@ test('升級徒弟後，他下次排班就會被指派', async () => {
 
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     assert.equal(gen.body.capacity.masters, 23);
-    assert.ok(
-      gen.body.assignments.some((a) => a.staff_id === apprentice.staff_id)
-        || gen.body.standby.some((s) => s.staff_id === apprentice.staff_id),
-      '升級後應被排到班或進預備隊',
-    );
+    assert.ok(gen.body.assignments.some((a) => a.staff_id === apprentice.staff_id), '升級後應被排到班');
   });
 });
 
@@ -312,7 +297,6 @@ test('降回徒弟後就不再被排班', async () => {
 
     assert.equal(gen.body.capacity.masters, 21);
     assert.ok(!gen.body.assignments.some((a) => a.staff_id === master.staff_id));
-    assert.ok(!gen.body.standby.some((s) => s.staff_id === master.staff_id));
   });
 });
 
@@ -342,36 +326,7 @@ test('Plan X 候選名單只會出現師傅', async () => {
   });
 });
 
-test('待命次數會輪替：連續數週不會重複選到同一批預備隊', async () => {
-  await withServer(async ({ call }) => {
-    const weeks = ['2026-09-07', '2026-09-14', '2026-09-21'];
-    const picked = [];
-    for (const week of weeks) {
-      const gen = await call('/api/week/generate', { method: 'POST', body: { week } });
-      await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
-      picked.push(gen.body.standby.map((s) => s.staff_id));
-    }
-    const flat = picked.flat();
-    assert.equal(new Set(flat).size, flat.length, '同一人不應在三週內重複擔任預備隊');
 
-    const fair = (await call('/api/staff')).body.fairness;
-    assert.equal(fair.reduce((sum, f) => sum + f.standby_count, 0), flat.length);
-  });
-});
-
-test('預備隊次數計入 standby_count，不計入工作量', async () => {
-  await withServer(async ({ call }) => {
-    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
-    const pub = await call(`/api/schedules/${gen.body.schedule.schedule_id}/publish`, { method: 'POST' });
-
-    for (const s of gen.body.standby) {
-      const row = pub.body.fairness.find((f) => f.staff_id === s.staff_id);
-      assert.equal(row.standby_count, 1);
-      assert.equal(row.blackboard_count + row.morning_whiteboard_count
-        + row.flag_whiteboard_count + row.noon_whiteboard_count, 0);
-    }
-  });
-});
 
 // ---------------------------------------------------------------
 // 設定後台：點位與成員的新增／修改／刪除
@@ -398,18 +353,19 @@ test('新增點位後，該時段的名額總數與供需摘要同步更新', as
 test('點位可以改名與調整人數', async () => {
   await withServer(async ({ call }) => {
     const { body } = await call('/api/items');
-    const target = body.items.find((i) => i.item_name === '待確認 3F');
-    assert.ok(target, '種子資料應有待確認的佔位點位');
+    const target = body.items.find((i) => i.shift_type === 'MORNING');
 
     await call(`/api/items/${target.item_id}`, {
-      method: 'PATCH', body: { item_name: '莊敬樓 3F', required_capacity: 3 },
+      method: 'PATCH', body: { item_name: '新光大樓 2F', required_capacity: 3 },
     });
 
     const after = await call('/api/items');
     const updated = after.body.items.find((i) => i.item_id === target.item_id);
-    assert.equal(updated.item_name, '莊敬樓 3F');
+    assert.equal(updated.item_name, '新光大樓 2F');
     assert.equal(updated.required_capacity, 3);
-    assert.ok(!after.body.items.some((i) => i.item_name === '待確認 3F'));
+    // 點位名稱在不同時段會重複（例如廣興樓同時在早修與午休），只能在同一時段內比對
+    assert.ok(!after.body.items.some((i) => i.shift_type === target.shift_type
+      && i.item_name === target.item_name));
   });
 });
 
@@ -485,10 +441,7 @@ test('新增成員後可直接進入排班池', async () => {
 
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     assert.equal(gen.body.capacity.masters, 23);
-    assert.ok(
-      gen.body.assignments.some((a) => a.staff_id === created.body.staff_id)
-        || gen.body.standby.some((s) => s.staff_id === created.body.staff_id),
-    );
+    assert.ok(gen.body.assignments.some((a) => a.staff_id === created.body.staff_id));
   });
 });
 
@@ -541,11 +494,11 @@ test('匯出的備份含有點位、成員、累計次數與各週班表', async
     const { body } = await call('/api/backup');
     assert.equal(body.format, 'dual-board-backup');
     assert.equal(body.staff.length, 69);
-    assert.equal(body.items.length, 42);
+    assert.equal(body.items.length, 47);
 
     const week = body.weeks[WEEK];
     assert.equal(week.status, 'PUBLISHED');
-    assert.equal(week.rows.length, gen.body.assignments.length + gen.body.standby.length);
+    assert.equal(week.rows.length, gen.body.assignments.length);
     assert.equal(week.absences.length, 1);
     assert.equal(week.absences[0].note, '研習');
     assert.ok(Object.keys(week.ledger).length > 0, '已發布的班表應帶著結算帳本');
@@ -567,18 +520,18 @@ test('還原備份會完整重建，包含公平性累計與發布狀態', async
 
     const restored = await call('/api/backup', { method: 'POST', body: dump });
     assert.equal(restored.body.imported.staff, 69);
-    assert.equal(restored.body.imported.items, 42);
+    assert.equal(restored.body.imported.items, 47);
     assert.equal(restored.body.imported.weeks, 1);
 
     const after = await call(`/api/week?week=${WEEK}`);
-    assert.equal(after.body.items.length, 42);
+    assert.equal(after.body.items.length, 47);
     assert.equal(after.body.staff.length, 69);
     assert.equal(after.body.schedule.status, 'PUBLISHED');
     assert.deepEqual(
       after.body.fairness.map((f) => [f.staff_id, f.blackboard_count, f.morning_whiteboard_count,
-        f.flag_whiteboard_count, f.noon_whiteboard_count, f.standby_count]),
+        f.flag_whiteboard_count, f.noon_whiteboard_count]),
       pub.body.fairness.map((f) => [f.staff_id, f.blackboard_count, f.morning_whiteboard_count,
-        f.flag_whiteboard_count, f.noon_whiteboard_count, f.standby_count]),
+        f.flag_whiteboard_count, f.noon_whiteboard_count]),
     );
   });
 });
@@ -594,7 +547,7 @@ test('還原後撤回發布仍能正確沖銷，代表帳本一起還原了', as
     const back = await call(`/api/schedules/${view.body.schedule.schedule_id}/unpublish`, { method: 'POST' });
 
     const total = back.body.fairness.reduce((sum, f) => sum + f.blackboard_count
-      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count + f.standby_count, 0);
+      + f.morning_whiteboard_count + f.flag_whiteboard_count + f.noon_whiteboard_count, 0);
     assert.equal(total, 0, '撤回後應完整歸零');
   });
 });

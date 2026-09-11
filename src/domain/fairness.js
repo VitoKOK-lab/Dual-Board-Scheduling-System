@@ -15,7 +15,7 @@ export const DIMENSION = {
   NOON: 'noon',
 };
 
-/** 任務維度（會計入工作量）；standby 另計，不屬於工作量。 */
+/** 四個任務維度，各自獨立排序與累計。 */
 export const WORK_DIMENSIONS = [DIMENSION.BLACKBOARD, DIMENSION.MORNING, DIMENSION.FLAG, DIMENSION.NOON];
 
 /** fairness_stats 的欄位名對映。 */
@@ -65,7 +65,6 @@ export class LoadTracker {
         morning: base.morning_whiteboard_count ?? 0,
         flag: base.flag_whiteboard_count ?? 0,
         noon: base.noon_whiteboard_count ?? 0,
-        standby: base.standby_count ?? 0,
         weekAssigned: 0,
       });
     }
@@ -74,7 +73,7 @@ export class LoadTracker {
   #row(staffId) {
     let row = this.load.get(staffId);
     if (!row) {
-      row = { blackboard: 0, morning: 0, flag: 0, noon: 0, standby: 0, weekAssigned: 0 };
+      row = { blackboard: 0, morning: 0, flag: 0, noon: 0, weekAssigned: 0 };
       this.load.set(staffId, row);
     }
     return row;
@@ -125,32 +124,5 @@ export function comparatorFor(dimension, tracker, tieRanks) {
     if (ra !== rb) return ra - rb;
 
     return a.staff_id - b.staff_id;
-  };
-}
-
-/**
- * 預備隊比較器。
- *
- * 預備隊整週不排點位，等於一週的休息，所以「待命權」本身要輪替：
- *   1. 擔任過預備隊次數最少者優先；
- *   2. 平手時讓累計工作量最重的人休息；
- *   3. 再平手用週別輪轉序。
- *
- * 若沿用「本週被指派最少者」當標準，被選中的人本週歸零、下週依然最少，
- * 預備隊會永遠卡在同一批人身上。
- */
-export function standbyComparator(tracker, tieRanks) {
-  return (a, b) => {
-    const sa = tracker.get(a.staff_id, 'standby');
-    const sb = tracker.get(b.staff_id, 'standby');
-    if (sa !== sb) return sa - sb;
-
-    const ta = tracker.total(a.staff_id);
-    const tb = tracker.total(b.staff_id);
-    if (ta !== tb) return tb - ta;
-
-    const ra = tieRanks.get(a.staff_id) ?? a.staff_id;
-    const rb = tieRanks.get(b.staff_id) ?? b.staff_id;
-    return ra - rb;
   };
 }

@@ -56,13 +56,9 @@ export const ROLE_LABEL = {
   [ROLE.APPRENTICE]: '徒弟',
 };
 
-/** 規格 §2.3：Plan Y 預備隊人數區間。 */
-export const STANDBY_MIN = 2;
-export const STANDBY_MAX = 3;
-
 export const WARNING = {
   UNDERSTAFFED: 'UNDERSTAFFED',             // 點位人數不足，留下空缺
   CONSTRAINT_RELAXED: 'CONSTRAINT_RELAXED', // 為填滿點位而放寬軟性限制
-  STANDBY_SHORT: 'STANDBY_SHORT',           // 預備隊人數不足 2 人
   CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',   // 單一時段名額總數超過可排班師傅數
+  IDLE_STAFF: 'IDLE_STAFF',                 // 有師傅整週沒有任何任務
 };
