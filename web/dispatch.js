@@ -64,10 +64,6 @@ async function api(path, { method = 'GET', body } = {}) {
     return view;
   }
 
-  if (head === 'assignments' && rest[1] === 'plan-x') {
-    return planXRecommendations(Number(rest[0]), { limit: Number(query.get('limit') ?? 8) });
-  }
-
   if (head === 'assignments' && rest.length === 1 && method === 'PATCH') {
     const staffId = body.staff_id === null || body.staff_id === undefined ? null : Number(body.staff_id);
     const view = overrideAssignment(Number(rest[0]), staffId);
@@ -79,16 +75,9 @@ async function api(path, { method = 'GET', body } = {}) {
   if (head === 'specials' && rest.length === 0 && method === 'POST') {
     const week = requireWeek(body?.week);
     await ensureWeekLoaded(week);
-    const dayOfWeek = body.day_of_week === null || body.day_of_week === undefined
-      ? null
-      : Number(body.day_of_week);
-    if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) bad('日期需為週一至週五或整週');
-
     const view = assignSpecial(week, {
       staffId: Number(body.staff_id),
       itemId: Number(body.item_id),
-      dayOfWeek,
-      note: String(body.note ?? '').trim() || null,
     });
     await Promise.all([saveWeek(week), saveConfig()]);
     return view;
@@ -150,6 +139,7 @@ async function api(path, { method = 'GET', body } = {}) {
       item_name: itemName,
       required_capacity: capacity,
       zone,
+      skip_on_flag_day: 0,
       sort_order: Math.max(0, ...sameShift.map((i) => i.sort_order)) + 10,
     });
     await saveConfig();
@@ -178,6 +168,7 @@ async function api(path, { method = 'GET', body } = {}) {
       if (zone && !Object.values(ZONE).includes(zone)) bad('分區需為定點或巡查');
       item.zone = zone;
     }
+    if (body.skip_on_flag_day !== undefined) item.skip_on_flag_day = body.skip_on_flag_day ? 1 : 0;
     if (body.sort_order !== undefined) item.sort_order = Number(body.sort_order);
 
     await saveConfig();

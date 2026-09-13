@@ -141,3 +141,7 @@ INSERT INTO staff (name, staff_group, role, sort_order) VALUES
 
 INSERT INTO fairness_stats (staff_id, blackboard_count, morning_whiteboard_count, noon_whiteboard_count)
   SELECT staff_id, 0, 0, 0 FROM staff;
+
+-- 升旗佔掉早修時段：升旗日當天不排黑板的「早修」職務，也就不會計入統計。
+UPDATE location_tasks SET skip_on_flag_day = 1
+  WHERE board_type = 'BLACKBOARD' AND shift_type = 'DAILY' AND item_name = '早修';

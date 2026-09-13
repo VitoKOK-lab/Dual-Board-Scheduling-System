@@ -110,7 +110,7 @@ test('撤回發布會沖銷該次結算', async () => {
   });
 });
 
-test('手動覆寫會標記 is_override，並在有衝突時回報但不阻擋', async () => {
+test('白板換人：以新的為準，舊名額自動清空，而且不回報衝突', async () => {
   await withServer(async ({ call }) => {
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     const morning = gen.body.items.filter((i) => i.board_type === 'WHITEBOARD' && i.shift_type === 'MORNING');
@@ -121,10 +121,42 @@ test('手動覆寫會標記 is_override，並在有衝突時回報但不阻擋',
       method: 'PATCH', body: { staff_id: other.staff_id },
     });
     assert.equal(res.status, 200);
-    const updated = res.body.assignments.find((a) => a.detail_id === slot.detail_id);
-    assert.equal(updated.staff_id, other.staff_id);
-    assert.equal(updated.is_override, true);
-    assert.ok(res.body.conflicts.some((c) => c.code === 'DUPLICATE_SHIFT'), '應回報同時段重複的衝突');
+    assert.equal(res.body.conflicts, undefined, '不該再回報衝突');
+
+    const moved = res.body.assignments.find((a) => a.detail_id === slot.detail_id);
+    const vacated = res.body.assignments.find((a) => a.detail_id === other.detail_id);
+    assert.equal(moved.staff_id, other.staff_id);
+    assert.equal(moved.is_override, true);
+    assert.equal(vacated.staff_id, null, '舊名額應被清空');
+  });
+});
+
+test('黑板換人不會清空舊名額：同一人本來就可能有兩項黑板職務', async () => {
+  await withServer(async ({ call }) => {
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const daily = gen.body.items.filter((i) => i.board_type === 'BLACKBOARD' && i.shift_type === 'DAILY');
+    const a = gen.body.assignments.find((r) => r.item_id === daily[0].item_id && r.day_of_week === 1);
+    const b = gen.body.assignments.find((r) => r.item_id === daily[1].item_id && r.day_of_week === 1);
+
+    const res = await call(`/api/assignments/${a.detail_id}`, { method: 'PATCH', body: { staff_id: b.staff_id } });
+    const kept = res.body.assignments.find((r) => r.detail_id === b.detail_id);
+    assert.equal(kept.staff_id, b.staff_id, '黑板的舊名額要原封不動');
+  });
+});
+
+test('升旗時段只有同一天才算重複，不同升旗日互不影響', async () => {
+  await withServer(async ({ call }) => {
+    await call('/api/week/flag-days', { method: 'POST', body: { week: WEEK, days: [1, 3] } });
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    const flagItem = gen.body.items.find((i) => i.shift_type === 'FLAG');
+    const monday = gen.body.assignments.find((a) => a.item_id === flagItem.item_id && a.day_of_week === 1);
+    const wednesday = gen.body.assignments.find((a) => a.item_id === flagItem.item_id && a.day_of_week === 3);
+
+    const res = await call(`/api/assignments/${monday.detail_id}`, {
+      method: 'PATCH', body: { staff_id: wednesday.staff_id },
+    });
+    const other = res.body.assignments.find((a) => a.detail_id === wednesday.detail_id);
+    assert.equal(other.staff_id, wednesday.staff_id, '不同天的升旗名額不該被清掉');
   });
 });
 
@@ -136,12 +168,7 @@ test('清空名額後會出現在待補清單，補位後消失', async () => {
     const cleared = await call(`/api/assignments/${slot.detail_id}`, { method: 'PATCH', body: { staff_id: null } });
     assert.ok(cleared.body.warnings.some((w) => w.detail_id === slot.detail_id));
 
-    const plan = await call(`/api/assignments/${slot.detail_id}/plan-x`);
-    assert.ok(plan.body.candidates.length > 0);
-    const best = plan.body.candidates[0];
-    assert.equal(best.conflicts.length, 0, '首選候選人不應帶衝突');
-
-    const filled = await call(`/api/assignments/${slot.detail_id}`, { method: 'PATCH', body: { staff_id: best.staff_id } });
+    const filled = await call(`/api/assignments/${slot.detail_id}`, { method: 'PATCH', body: { staff_id: slot.staff_id } });
     assert.ok(!filled.body.warnings.some((w) => w.detail_id === slot.detail_id));
   });
 });
@@ -223,17 +250,33 @@ test('公差由主管手動指派，並計入公平性統計', async () => {
 
     const res = await call('/api/specials', {
       method: 'POST',
-      body: { week: WEEK, staff_id: person.staff_id, item_id: task.item_id, day_of_week: 2, note: '帶新生導覽' },
+      body: { week: WEEK, staff_id: person.staff_id, item_id: task.item_id },
     });
     assert.equal(res.status, 200);
 
     const row = res.body.assignments.find((a) => a.item_id === task.item_id);
     assert.equal(row.staff_id, person.staff_id);
-    assert.equal(row.day_of_week, 2);
-    assert.equal(row.note, '帶新生導覽');
+    assert.equal(row.day_of_week, null, '公差沒有時間');
 
     const pub = await call(`/api/schedules/${res.body.schedule.schedule_id}/publish`, { method: 'POST' });
     assert.equal(pub.body.fairness.find((f) => f.staff_id === person.staff_id).special_count, 1);
+  });
+});
+
+test('同一個人可以被指派多筆公差，次數照樣累加', async () => {
+  await withServer(async ({ call }) => {
+    const view = await call(`/api/week?week=${WEEK}`);
+    const tasks = view.body.items.filter((i) => i.board_type === 'SPECIAL');
+    const person = view.body.staff.find((s) => s.role === 'MASTER');
+
+    for (const task of tasks.slice(0, 3)) {
+      await call('/api/specials', {
+        method: 'POST', body: { week: WEEK, staff_id: person.staff_id, item_id: task.item_id },
+      });
+    }
+    const view2 = await call(`/api/week?week=${WEEK}`);
+    const pub = await call(`/api/schedules/${view2.body.schedule.schedule_id}/publish`, { method: 'POST' });
+    assert.equal(pub.body.fairness.find((f) => f.staff_id === person.staff_id).special_count, 3);
   });
 });
 
@@ -392,29 +435,63 @@ test('降回徒弟後就不再被排班', async () => {
   });
 });
 
-test('把徒弟強制指派到名額會回報衝突但仍然照做', async () => {
+test('主管可以把任何人強制指派到名額，不再有任何阻擋或提示', async () => {
   await withServer(async ({ call }) => {
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
     const slot = gen.body.assignments.find((a) => a.day_of_week === 5 && a.staff_id != null);
     const apprentice = gen.body.staff.find((s) => s.role === 'APPRENTICE');
 
     const res = await call(`/api/assignments/${slot.detail_id}`, { method: 'PATCH', body: { staff_id: apprentice.staff_id } });
-    assert.ok(res.body.conflicts.some((c) => c.code === 'APPRENTICE'), '應回報對方是徒弟');
-    const updated = res.body.assignments.find((a) => a.detail_id === slot.detail_id);
-    assert.equal(updated.staff_id, apprentice.staff_id, '主管的強制覆寫仍須生效');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.conflicts, undefined);
+    assert.equal(res.body.assignments.find((a) => a.detail_id === slot.detail_id).staff_id, apprentice.staff_id);
   });
 });
 
-test('Plan X 候選名單只會出現師傅', async () => {
+// ---------------------------------------------------------------
+// 幹部：不進自動排班，但主管可以手動指派
+// ---------------------------------------------------------------
+
+test('升為幹部後不再被自動排班，可排班師傅數也跟著減少', async () => {
+  await withServer(async ({ call }) => {
+    const before = await call(`/api/week?week=${WEEK}`);
+    const person = before.body.staff.find((s) => s.role === 'MASTER');
+
+    const res = await call(`/api/staff/${person.staff_id}`, { method: 'PATCH', body: { role: 'CADRE' } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.staff.find((s) => s.staff_id === person.staff_id).role, 'CADRE');
+
+    const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
+    assert.equal(gen.body.capacity.masters, 21);
+    assert.ok(!gen.body.assignments.some((a) => a.staff_id === person.staff_id));
+  });
+});
+
+test('幹部可以被手動指派到名額與公差', async () => {
   await withServer(async ({ call }) => {
     const gen = await call('/api/week/generate', { method: 'POST', body: { week: WEEK } });
-    const slot = gen.body.assignments.find((a) => a.day_of_week === 2 && a.staff_id != null);
+    const person = gen.body.staff.find((s) => s.role === 'APPRENTICE');
+    await call(`/api/staff/${person.staff_id}`, { method: 'PATCH', body: { role: 'CADRE' } });
 
-    const plan = await call(`/api/assignments/${slot.detail_id}/plan-x`);
-    assert.ok(plan.body.candidates.length > 0);
-    for (const c of plan.body.candidates) {
-      assert.equal(c.role, 'MASTER', `${c.name} 是徒弟卻出現在候選名單`);
-    }
+    const slot = gen.body.assignments.find((a) => a.staff_id != null);
+    const patched = await call(`/api/assignments/${slot.detail_id}`, { method: 'PATCH', body: { staff_id: person.staff_id } });
+    assert.equal(patched.body.assignments.find((a) => a.detail_id === slot.detail_id).staff_id, person.staff_id);
+
+    const task = gen.body.items.find((i) => i.board_type === 'SPECIAL');
+    const special = await call('/api/specials', {
+      method: 'POST', body: { week: WEEK, staff_id: person.staff_id, item_id: task.item_id },
+    });
+    assert.equal(special.status, 200);
+  });
+});
+
+test('身分只接受師傅／幹部／徒弟三種', async () => {
+  await withServer(async ({ call }) => {
+    const { body } = await call('/api/staff');
+    const person = body.staff[0];
+    assert.equal((await call(`/api/staff/${person.staff_id}`, { method: 'PATCH', body: { role: '幹部' } })).status, 400);
+    assert.equal((await call('/api/staff', { method: 'POST', body: { name: 'X', role: 'BOSS' } })).status, 400);
+    assert.equal((await call('/api/staff', { method: 'POST', body: { name: '新幹部', role: 'CADRE' } })).status, 200);
   });
 });
 
@@ -586,7 +663,7 @@ test('匯出的備份含有點位、成員、累計次數與各週班表', async
     const task = gen.body.items.find((i) => i.board_type === 'SPECIAL');
     await call('/api/specials', {
       method: 'POST',
-      body: { week: WEEK, staff_id: 48, item_id: task.item_id, note: '帶新生導覽' },
+      body: { week: WEEK, staff_id: 48, item_id: task.item_id },
     });
 
     const { body } = await call('/api/backup');
@@ -598,7 +675,7 @@ test('匯出的備份含有點位、成員、累計次數與各週班表', async
     assert.equal(week.status, 'PUBLISHED');
     assert.deepEqual(week.flag_days, [3]);
     assert.equal(week.rows.length, gen.body.assignments.length + 1, '公差也要進備份');
-    assert.equal(week.rows.find((r) => r.item_id === task.item_id).note, '帶新生導覽');
+    assert.equal(body.items.find((i) => i.item_name === '早修' && i.board_type === 'BLACKBOARD').skip_on_flag_day, 1);
     assert.ok(Object.keys(week.ledger).length > 0, '已發布的班表應帶著結算帳本');
   });
 });

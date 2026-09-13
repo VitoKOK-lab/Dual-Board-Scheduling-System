@@ -296,7 +296,9 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   font-size: 15px; font-weight: 700;
   transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.segmented button[aria-selected="true"] { background: var(--track-active); box-shadow: var(--shadow-card); }
+.segmented button[aria-selected="true"],
+.segmented button[aria-pressed="true"] { background: var(--track-active); box-shadow: var(--shadow-card); }
+.segmented button:disabled { opacity: 1; cursor: default; }
 .segmented button[aria-selected="true"][data-shift="MORNING"] { color: var(--emerald-ink); }
 .segmented button[aria-selected="true"][data-shift="FLAG"] { color: var(--topaz-ink); }
 .segmented button[aria-selected="true"][data-shift="NOON"] { color: var(--amethyst-ink); }
@@ -384,6 +386,53 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
   padding: 4px var(--gutter) 20px;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
   display: flex; flex-direction: column; gap: 12px;
+}
+
+/* 換人面板：搜尋框 + 全名冊清單（不做推薦，主管自己挑） */
+.picker__search {
+  width: 100%; min-height: 48px; padding: 0 14px;
+  font: inherit; font-size: 16px; color: var(--ink);
+  background: var(--sunken); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.picker {
+  display: flex; flex-direction: column;
+  max-height: 52dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.picker__head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 8px 14px;
+  background: var(--sunken);
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--ink-2);
+}
+.picker__count { font-size: 12px; color: var(--ink-3); }
+.picker__row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 56px; padding: 8px 14px;
+  border: 0; border-top: 1px solid var(--border);
+  background: none; text-align: left;
+}
+.picker__row:first-of-type { border-top: 0; }
+.picker__row:active { background: var(--sunken); }
+.picker__row--current { background: var(--sapphire-soft); }
+.picker__row--current .picker__name { color: var(--sapphire-ink); }
+.picker__main { flex: 1; min-width: 0; }
+.picker__name { font-size: 16px; font-weight: 500; }
+.picker__sub { font-size: 12px; color: var(--ink-3); }
+
+/* 任務選擇（公差） */
+.field__label { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--surface); color: var(--ink-2);
+  font-size: 14px; font-weight: 500;
+}
+.chip[aria-pressed="true"] {
+  background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 700;
 }
 
 /* 候選人列 */
@@ -580,6 +629,16 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 
 .admin-row__confirm { display: flex; gap: 6px; align-items: center; }
 .admin-row__confirm span { font-size: 13px; color: var(--ruby-ink); font-weight: 700; margin-right: 2px; }
+
+/* 成員列：名字與刪除在上，身分切換獨佔下面一列 */
+.admin-row--stack { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.admin-row__top { display: flex; align-items: center; gap: 10px; }
+.admin-row__top .admin-row__main { flex: 1; min-width: 0; }
+
+.segmented--sm { padding: 3px; }
+.segmented--sm button { min-height: 40px; font-size: 14px; }
+.segmented--sm button[aria-pressed="true"] { background: var(--track-active); box-shadow: var(--shadow-card); color: var(--ink); }
+.segmented--sm button:disabled { opacity: 1; cursor: default; }
 
 .admin-form { display: flex; flex-direction: column; gap: 10px; }
 .admin-form__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

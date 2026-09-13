@@ -50,16 +50,20 @@ export const ZONE = {
 
 /**
  * 師徒制：只有「師傅」進入排班池。
+ *
  * 徒弟跟著自己的師傅學習，不排班、不計入點位人數，
  * 由主管手動升級為師傅後才會被排到班。
+ * 幹部有隊務在身，不進自動排班，但主管仍可手動把他指派到任一名額或公差。
  */
 export const ROLE = {
-  MASTER: 'MASTER',
-  APPRENTICE: 'APPRENTICE',
+  MASTER: 'MASTER',         // 師傅：自動排班
+  CADRE: 'CADRE',           // 幹部：不自動排班，可手動指派
+  APPRENTICE: 'APPRENTICE', // 徒弟：不排班
 };
 
 export const ROLE_LABEL = {
   [ROLE.MASTER]: '師傅',
+  [ROLE.CADRE]: '幹部',
   [ROLE.APPRENTICE]: '徒弟',
 };
 

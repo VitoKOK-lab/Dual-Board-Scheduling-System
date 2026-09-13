@@ -17,6 +17,13 @@ const DIMENSIONS = [
   { key: 'special_count', label: '公差', color: 'var(--ruby)', bar: 'bar--sp' },
 ];
 const DRAG_THRESHOLD = 8;
+/** 身分：只有師傅進自動排班；幹部與徒弟要靠主管手動指派。 */
+const ROLES = [
+  { key: 'MASTER', label: '師傅', hint: '自動排班' },
+  { key: 'CADRE', label: '幹部', hint: '不排班，可手動指派' },
+  { key: 'APPRENTICE', label: '徒弟', hint: '不排班' },
+];
+const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.key, r.label]));
 
 const state = {
   week: null,
@@ -119,8 +126,6 @@ const specialRows = () => state.data.assignments
     || (a.day_of_week ?? 9) - (b.day_of_week ?? 9)
     || a.detail_id - b.detail_id);
 
-/** 某人本週的公差次數，指派時用來看誰輪得少。 */
-const specialCountOf = (staffId) => specialRows().filter((r) => r.staff_id === staffId).length;
 
 /* ---------- 名牌 chip ---------- */
 
@@ -186,12 +191,12 @@ function tagsCell(slots, boardKind) {
  * 白板點位表：點位｜人員｜點位｜人員。
  * 左半欄放前半段點位，右半欄接著放後半段，照實體白板的兩欄寫法。
  */
-function pairTable(items, day, boardKind) {
+function pairTable(items, day, boardKind, headLabel = '點位') {
   const { wrap, table: node } = table('sched--pair4');
 
   const thead = el('thead');
   const headRow = el('tr');
-  for (const label of ['點位', '人員', '點位', '人員']) {
+  for (const label of [headLabel, '人員', headLabel, '人員']) {
     const th = el('th', null, label);
     th.scope = 'col';
     headRow.append(th);
@@ -270,24 +275,12 @@ function renderBlackboard() {
     view.append(wrap);
   }
 
-  // 全週固定職務：整週一人，跟日期無關
+  // 全週固定職務：整週一人，跟日期無關。交接與值日生並排成一列，不上下疊。
   const weekly = itemsOf('BLACKBOARD', 'ALL_WEEK');
   if (weekly.length) {
     view.append(captionRow('全週固定職務', '1 週 1 次'));
-
-    const { wrap, table: node } = table('sched--pair');
-    const tbody = el('tbody');
-    for (const item of weekly) {
-      const row = el('tr');
-      const label = el('th', null, item.item_name);
-      label.scope = 'row';
-      row.append(label, slotCell(slotsOf(item.item_id, null), 0, 'BLACKBOARD'));
-      tbody.append(row);
-    }
-    node.append(tbody);
-    view.append(wrap);
+    view.append(pairTable(weekly, null, 'BLACKBOARD', '職務'));
   }
-
 }
 
 /* ---------- 視圖：白板 ---------- */
@@ -394,18 +387,31 @@ function renderSpecial() {
 
   const tasks = itemsOf('SPECIAL', 'SPECIAL');
   const rows = specialRows();
+  // 累計次數要含本週：草稿還沒結算進 fairness，直接顯示 0 會看起來像壞掉
+  const settled = state.data.schedule.status === 'PUBLISHED';
+  const totals = new Map(state.data.fairness.map((f) => [f.staff_id, f.special_count]));
+  if (!settled) {
+    for (const r of rows) {
+      if (r.staff_id == null) continue;
+      totals.set(r.staff_id, (totals.get(r.staff_id) ?? 0) + 1);
+    }
+  }
 
-  view.append(captionRow('公差任務', `${tasks.length} 項 · 已指派 ${rows.length} 人次`));
+  view.append(captionRow('公差', `${rows.length} 筆・${tasks.length} 項任務`));
 
   if (tasks.length === 0) {
     const empty = el('div', 'card');
     empty.append(el('p', 'field__hint', '還沒有任何公差任務。到右上角設定裡的「點位」分頁，在「公差任務」底下建立隊裡的特殊任務。'));
     view.append(empty);
+  } else if (rows.length === 0) {
+    const empty = el('div', 'card');
+    empty.append(el('p', 'field__hint', '本週還沒有指派公差。'));
+    view.append(empty);
   } else {
     const { wrap, table: node } = table('sched--special');
     const thead = el('thead');
     const headRow = el('tr');
-    for (const label of ['任務', '人員', '時間', '']) {
+    for (const label of ['人員', '任務', '次數', '']) {
       const th = el('th', null, label);
       th.scope = 'col';
       headRow.append(th);
@@ -414,73 +420,41 @@ function renderSpecial() {
     node.append(thead);
 
     const tbody = el('tbody');
-    for (const task of tasks) {
-      const mine = rows.filter((r) => r.item_id === task.item_id);
+    for (const r of rows) {
+      const tr = el('tr');
 
-      if (mine.length === 0) {
-        const row = el('tr');
-        const label = el('th', null, task.item_name);
-        label.scope = 'row';
-        row.append(label);
-        row.append(el('td', 'cell-text', '—'));
-        row.append(el('td', 'cell-text', '—'));
+      const who = el('th', null, staffName(r.staff_id));
+      who.scope = 'row';
+      tr.append(who);
 
-        const action = el('td', 'cell-action');
-        const add = el('button', 'iconbtn');
-        add.type = 'button';
-        add.setAttribute('aria-label', `指派「${task.item_name}」`);
-        add.append(icon('i-plus'));
-        add.addEventListener('click', () => openSpecialSheet(task.item_id));
-        action.append(add);
-        row.append(action);
+      tr.append(el('td', 'cell-text', state.itemsById.get(r.item_id)?.item_name ?? '（已刪除）'));
+      tr.append(el('td', 'cell-text mono', String(totals.get(r.staff_id) ?? 0)));
 
-        tbody.append(row);
-        continue;
-      }
-
-      mine.forEach((assignment, index) => {
-        const row = el('tr');
-        if (index === 0) {
-          const label = el('th', null, task.item_name);
-          label.scope = 'row';
-          if (mine.length > 1) label.rowSpan = mine.length;
-          row.append(label);
-        }
-
-        const who = el('td');
-        who.append(tagEl(assignment, 'SPECIAL'));
-        if (assignment.note) who.append(el('span', 'cell-sub', assignment.note));
-        row.append(who);
-
-        row.append(el('td', 'cell-text', assignment.day_of_week
-          ? `週${DAY_NAMES[assignment.day_of_week]}`
-          : '整週'));
-
-        const action = el('td', 'cell-action');
-        const del = el('button', 'iconbtn');
-        del.type = 'button';
-        del.setAttribute('aria-label', `移除「${task.item_name}」的指派`);
-        del.append(icon('i-trash'));
-        del.addEventListener('click', async () => {
-          absorb(await api(`/api/specials/${assignment.detail_id}`, { method: 'DELETE' }));
-          toast('已移除公差指派');
-        });
-        action.append(del);
-        row.append(action);
-
-        tbody.append(row);
+      const action = el('td', 'cell-action');
+      const del = el('button', 'iconbtn');
+      del.type = 'button';
+      del.setAttribute('aria-label', `移除 ${staffName(r.staff_id)} 的公差`);
+      del.append(icon('i-trash'));
+      del.addEventListener('click', async () => {
+        absorb(await api(`/api/specials/${r.detail_id}`, { method: 'DELETE' }));
+        toast('已移除公差');
       });
+      action.append(del);
+      tr.append(action);
+
+      tbody.append(tr);
     }
     node.append(tbody);
     view.append(wrap);
+  }
 
+  if (tasks.length > 0) {
     const addBtn = el('button', 'btn btn--block btn--primary');
     addBtn.type = 'button';
     addBtn.append(icon('i-plus'), el('span', null, '指派公差'));
-    addBtn.addEventListener('click', () => openSpecialSheet(null));
+    addBtn.addEventListener('click', openSpecialSheet);
     view.append(addBtn);
-
-    view.append(el('p', 'field__hint', '公差是隊裡的特殊任務，由主管手動指派，會計入統計裡的公差次數。重新排班不會動到已指派的公差。'));
+    view.append(el('p', 'field__hint', '公差是隊裡的特殊任務，指派後計入該員的公差次數；重新排班不會動到它。次數為累計值，含本週。'));
   }
 
   // 待補名額
@@ -521,7 +495,7 @@ function renderSpecial() {
     fill.type = 'button';
     fill.setAttribute('aria-label', `補 ${g.item_name} 的空缺`);
     fill.append(icon('i-plus'));
-    fill.addEventListener('click', () => openPlanX(g.detail_id));
+    fill.addEventListener('click', () => openPicker(g.detail_id));
     action.append(fill);
     row.append(action);
 
@@ -579,8 +553,10 @@ function renderStats() {
   view.replaceChildren();
   view.classList.add('stagger');
 
-  const masters = state.data.fairness.filter((f) => f.role === 'MASTER');
-  const apprentices = state.data.fairness.filter((f) => f.role !== 'MASTER');
+  const byRole = (key) => state.data.fairness.filter((f) => f.role === key);
+  const masters = byRole('MASTER');
+  const cadres = byRole('CADRE');
+  const apprentices = byRole('APPRENTICE');
   const activeMasters = masters.filter((f) => f.is_active);
 
   // 供需：每人每個時段只能站一個點位，尖峰名額數就是師傅數的下限
@@ -601,7 +577,8 @@ function renderStats() {
       return row;
     };
 
-    list.append(line('可排班師傅', cap.masters, `徒弟 ${apprentices.length} 位不列入`));
+    list.append(line('可排班師傅', cap.masters,
+      `幹部 ${cadres.length} 位、徒弟 ${apprentices.length} 位不列入`));
     for (const sh of cap.shifts ?? []) {
       list.append(line(`${sh.label}名額`, sh.slots, `${sh.points} 個點位`));
     }
@@ -645,6 +622,7 @@ function renderStats() {
   view.append(legend);
 
   view.append(rosterSection('師傅', masters, true));
+  view.append(rosterSection('幹部', cadres, true));
   view.append(rosterSection('徒弟', apprentices, false));
 }
 
@@ -652,8 +630,9 @@ function renderStats() {
 function rosterSection(title, rows, withLoad) {
   const wrap = document.createDocumentFragment();
 
+  const SUBTITLE = { 師傅: '自動排班', 幹部: '不排班，可手動指派', 徒弟: '不排班' };
   const head = el('div', 'section-head');
-  head.append(el('h2', null, withLoad ? `${title}（可排班）` : `${title}（不排班）`));
+  head.append(el('h2', null, `${title}（${SUBTITLE[title] ?? ''}）`));
   head.append(el('span', 'section-head__meta', `${rows.length} 位`));
   wrap.append(head);
 
@@ -686,7 +665,7 @@ function rosterSection(title, rows, withLoad) {
       const sub = `${r.staff_group}・${DIMENSIONS.map((d) => `${d.label}${r[d.key]}`).join(' ')}`;
       nameWrap.append(el('span', null, sub));
     } else {
-      nameWrap.append(el('span', null, `${r.staff_group}・點選可升級為師傅`));
+      nameWrap.append(el('span', null, `${r.staff_group}・點選可改身分`));
     }
     btn.append(nameWrap);
 
@@ -701,7 +680,7 @@ function rosterSection(title, rows, withLoad) {
       btn.append(bars);
       btn.append(el('span', 'person__total mono', String(total)));
     } else {
-      btn.append(badge('升級', 'topaz'));
+      btn.append(badge('改身分', 'topaz'));
     }
 
     btn.addEventListener('click', () => openStaffSheet(r));
@@ -772,41 +751,86 @@ function confirmSheet({ title, message, confirmLabel, tone = 'primary' }) {
   });
 }
 
-/* ---------- Plan X 換人 ---------- */
+/* ---------- 換人：直接列出全部人員 ---------- */
 
-async function openPlanX(detailId) {
-  const info = await api(`/api/assignments/${detailId}/plan-x`);
-  const shiftLabel = info.item.board_type === 'BLACKBOARD'
-    ? '黑板'
-    : (SHIFT_LABEL[info.item.shift_type] ?? info.item.shift_type);
-  const dayLabel = info.day_of_week ? `週${DAY_NAMES[info.day_of_week]}` : '全週';
-  const current = info.current_staff_id ? staffName(info.current_staff_id) : '空缺';
+/**
+ * 人員清單。一次列完所有人，依身分分組，可打字過濾。
+ * 不做推薦、不排序建議人選——主管自己知道要換誰。
+ */
+function rosterPicker(body, { currentStaffId = null, onPick }) {
+  const search = el('input', 'picker__search');
+  search.type = 'search';
+  search.placeholder = '輸入姓名快速尋找';
+  search.setAttribute('aria-label', '搜尋人員');
+  body.append(search);
 
-  openSheet(`${info.item.item_name}`, `${shiftLabel} · ${dayLabel} · 目前：${current}`, (body) => {
-    body.append(el('p', 'field__hint', '只有師傅能排班，因此名單僅列出師傅，並依目前負擔由輕到重排序。主管可強制指派，衝突僅提示不阻擋。'));
+  const list = el('div', 'picker');
+  body.append(list);
 
-    for (const c of info.candidates) {
-      body.append(candidateRow(detailId, c, shiftLabel));
+  const weekLoad = new Map();
+  for (const r of state.data.assignments) {
+    if (r.staff_id == null) continue;
+    weekLoad.set(r.staff_id, (weekLoad.get(r.staff_id) ?? 0) + 1);
+  }
+
+  const draw = (keyword) => {
+    list.replaceChildren();
+    const q = keyword.trim();
+    let shown = 0;
+
+    for (const { key, label, hint } of ROLES) {
+      const people = state.data.staff.filter((person) => person.role === key
+        && (!q || person.name.includes(q) || (person.staff_group ?? '').includes(q)));
+      if (people.length === 0) continue;
+
+      const head = el('div', 'picker__head');
+      head.append(el('span', null, `${label}（${hint}）`));
+      head.append(el('span', 'picker__count mono', String(people.length)));
+      list.append(head);
+
+      for (const person of people) {
+        shown += 1;
+        const btn = el('button', 'picker__row');
+        btn.type = 'button';
+        if (person.staff_id === currentStaffId) btn.classList.add('picker__row--current');
+        if (!person.is_active) btn.classList.add('person--off');
+
+        const main = el('div', 'picker__main');
+        main.append(el('div', 'picker__name', person.name));
+        const sub = [person.staff_group, `本週 ${weekLoad.get(person.staff_id) ?? 0} 件`];
+        if (!person.is_active) sub.push('已停用');
+        main.append(el('div', 'picker__sub', sub.join('・')));
+        btn.append(main);
+        if (person.staff_id === currentStaffId) btn.append(icon('i-check'));
+
+        btn.addEventListener('click', () => onPick(person));
+        list.append(btn);
+      }
     }
 
-    const search = el('div', 'field');
-    const label = el('label', null, '指派其他師傅');
-    label.setAttribute('for', 'staffPick');
-    const select = el('select');
-    select.id = 'staffPick';
-    select.append(new Option('— 選擇人員 —', ''));
-    const pickable = state.data.staff.filter((person) => person.is_active && person.role === 'MASTER');
-    for (const person of pickable) {
-      select.append(new Option(`${person.name}（${person.staff_group}）`, String(person.staff_id)));
-    }
-    select.addEventListener('change', async () => {
-      if (!select.value) return;
-      await assign(detailId, Number(select.value));
+    if (shown === 0) list.append(el('p', 'field__hint', '找不到符合的人員。'));
+  };
+
+  draw('');
+  search.addEventListener('input', () => draw(search.value));
+  return search;
+}
+
+/** 點名牌換人。 */
+function openPicker(detailId) {
+  const row = state.data.assignments.find((r) => r.detail_id === detailId);
+  const item = row ? state.itemsById.get(row.item_id) : null;
+  const board = item?.board_type === 'BLACKBOARD' ? '黑板' : (SHIFT_LABEL[item?.shift_type] ?? '');
+  const where = row?.day_of_week ? `週${DAY_NAMES[row.day_of_week]}` : '整週';
+  const current = row?.staff_id != null ? staffName(row.staff_id) : '空缺';
+
+  openSheet(item?.item_name ?? '換人', `${board} · ${where} · 目前：${current}`, (body) => {
+    rosterPicker(body, {
+      currentStaffId: row?.staff_id ?? null,
+      onPick: (person) => assign(detailId, person.staff_id),
     });
-    search.append(label, select);
-    body.append(search);
 
-    if (info.current_staff_id != null) {
+    if (row?.staff_id != null) {
       const clear = el('button', 'btn btn--block btn--danger');
       clear.type = 'button';
       clear.append(icon('i-trash'), el('span', null, '清空此名額'));
@@ -816,125 +840,49 @@ async function openPlanX(detailId) {
   });
 }
 
-function candidateRow(detailId, c, shiftLabel) {
-  const btn = el('button', 'cand');
-  btn.type = 'button';
-
-  const main = el('div', 'cand__main');
-  main.append(el('div', 'cand__name', c.name));
-
-  // 只在會踩到限制時才加標籤
-  if (c.conflicts.length) {
-    const why = el('div', 'cand__why');
-    for (const conflict of c.conflicts) why.append(badge(conflict.label, 'ruby'));
-    main.append(why);
-  }
-
-  const stat = el('div', 'cand__num mono');
-  stat.textContent = `${c.staff_group} · 歷史${shiftLabel} ${c.historyCount} 次 · 本週已排 ${c.weekAssigned}`;
-  main.append(stat);
-
-  btn.append(main);
-  btn.append(icon('i-check'));
-  btn.addEventListener('click', () => assign(detailId, c.staff_id));
-  return btn;
-}
-
 async function assign(detailId, staffId) {
-  const result = await api(`/api/assignments/${detailId}`, { method: 'PATCH', body: { staff_id: staffId } });
-  absorb(result);
+  absorb(await api(`/api/assignments/${detailId}`, { method: 'PATCH', body: { staff_id: staffId } }));
   closeSheet();
-  if (result.conflicts?.length) {
-    toast(`已強制指派，注意：${result.conflicts.map((c) => c.label).join('、')}`, 'error');
-  } else {
-    toast(staffId == null ? '已清空名額' : '已更新名額');
-  }
+  toast(staffId == null ? '已清空名額' : '已更新名額');
 }
 
 /* ---------- 公差指派 ---------- */
 
-function openSpecialSheet(presetItemId) {
+function openSpecialSheet() {
   const tasks = itemsOf('SPECIAL', 'SPECIAL');
   if (tasks.length === 0) {
     toast('請先到設定裡新增公差任務', 'error');
     return;
   }
 
-  openSheet('指派公差', '公差計入統計，重新排班不會被覆蓋', (body) => {
-    const taskField = el('div', 'field');
-    const taskLabel = el('label', null, '任務');
-    taskLabel.setAttribute('for', 'spItem');
-    const taskSelect = el('select');
-    taskSelect.id = 'spItem';
-    for (const task of tasks) taskSelect.append(new Option(task.item_name, String(task.item_id)));
-    if (presetItemId != null) taskSelect.value = String(presetItemId);
-    taskField.append(taskLabel, taskSelect);
+  let picked = tasks[0].item_id;
 
-    const staffField = el('div', 'field');
-    const staffLabel = el('label', null, '人員');
-    staffLabel.setAttribute('for', 'spStaff');
-    const staffSelect = el('select');
-    staffSelect.id = 'spStaff';
-    // 徒弟不排班，公差也只指派給師傅；依累計公差次數由少到多排，輪得少的排在前面
-    const pickable = state.data.fairness
-      .filter((f) => f.is_active && f.role === 'MASTER')
-      .sort((a, b) => a.special_count - b.special_count || a.staff_id - b.staff_id);
-    for (const person of pickable) {
-      const week = specialCountOf(person.staff_id);
-      staffSelect.append(new Option(
-        `${person.name}（累計 ${person.special_count} 次${week ? `・本週 ${week}` : ''}）`,
-        String(person.staff_id),
-      ));
+  openSheet('指派公差', '選任務，再選人。只記次數，沒有時間', (body) => {
+    const label = el('p', 'field__label', '任務');
+    const chips = el('div', 'chips');
+    for (const task of tasks) {
+      const chip = el('button', 'chip', task.item_name);
+      chip.type = 'button';
+      chip.setAttribute('aria-pressed', String(task.item_id === picked));
+      chip.addEventListener('click', () => {
+        picked = task.item_id;
+        for (const other of chips.children) other.setAttribute('aria-pressed', String(other === chip));
+      });
+      chips.append(chip);
     }
-    staffField.append(staffLabel, staffSelect, el('span', 'field__hint', '依累計公差次數由少到多排序'));
+    body.append(label, chips);
 
-    const dayField = el('div', 'field');
-    const dayLabel = el('label', null, '時間');
-    dayLabel.setAttribute('for', 'spDay');
-    const daySelect = el('select');
-    daySelect.id = 'spDay';
-    daySelect.append(new Option('整週', ''));
-    for (const day of [1, 2, 3, 4, 5]) daySelect.append(new Option(`週${DAY_NAMES[day]}`, String(day)));
-    dayField.append(dayLabel, daySelect);
-
-    const noteField = el('div', 'field');
-    const noteLabel = el('label', null, '備註');
-    noteLabel.setAttribute('for', 'spNote');
-    const noteInput = el('input');
-    noteInput.type = 'text';
-    noteInput.id = 'spNote';
-    noteInput.placeholder = '例：帶新生導覽';
-    noteField.append(noteLabel, noteInput);
-
-    const error = el('p', 'field__error');
-    error.hidden = true;
-    error.setAttribute('role', 'alert');
-
-    const submit = el('button', 'btn btn--block btn--primary');
-    submit.type = 'button';
-    submit.append(icon('i-check'), el('span', null, '指派'));
-    submit.addEventListener('click', async () => {
-      try {
+    body.append(el('p', 'field__label', '人員'));
+    rosterPicker(body, {
+      onPick: async (person) => {
         absorb(await api('/api/specials', {
           method: 'POST',
-          body: {
-            week: state.week,
-            staff_id: Number(staffSelect.value),
-            item_id: Number(taskSelect.value),
-            day_of_week: daySelect.value ? Number(daySelect.value) : null,
-            note: noteInput.value.trim() || null,
-          },
+          body: { week: state.week, staff_id: person.staff_id, item_id: picked },
         }));
-      } catch (e) {
-        error.textContent = e.message;
-        error.hidden = false;
-        return;
-      }
-      closeSheet();
-      toast('已指派公差');
+        closeSheet();
+        toast(`已指派公差給 ${person.name}`);
+      },
     });
-
-    body.append(taskField, staffField, dayField, noteField, error, submit);
   });
 }
 
@@ -943,9 +891,7 @@ function openSpecialSheet(presetItemId) {
 function openStaffSheet(person) {
   const isMaster = person.role === 'MASTER';
   const total = DIMENSIONS.reduce((sum, d) => sum + person[d.key], 0);
-  const subtitle = isMaster
-    ? `${person.staff_group} · 師傅 · 累計 ${total} 次任務`
-    : `${person.staff_group} · 徒弟 · 不排班`;
+  const subtitle = `${person.staff_group} · ${ROLE_LABEL[person.role] ?? person.role} · 累計 ${total} 次任務`;
 
   openSheet(person.name, subtitle, (body) => {
     if (isMaster) {
@@ -961,23 +907,16 @@ function openStaffSheet(person) {
       for (const d of DIMENSIONS) rings.append(ringEl(d.label, share(person[d.key], d.key), d.color));
       body.append(rings);
       body.append(el('p', 'field__hint', '環代表相對於師傅平均的比例，環下為「本人次數／師傅平均」。'));
+    } else if (person.role === 'CADRE') {
+      body.append(el('p', 'field__hint', '幹部有隊務在身，不進自動排班；但你隨時可以點名牌把他手動排進任何位置或公差，次數照樣累計。'));
     } else {
-      body.append(el('p', 'field__hint', '徒弟跟著師傅學習，不進入排班池、不計入點位人數。升級為師傅後才會被排到班。'));
+      body.append(el('p', 'field__hint', '徒弟跟著師傅學習，不進排班池、不計入點位人數。升級為師傅後才會被自動排到班。'));
     }
 
-    const promote = el('button', `btn btn--block ${isMaster ? 'btn--quiet' : 'btn--primary'}`);
-    promote.type = 'button';
-    promote.textContent = isMaster ? '降回徒弟' : '升級為師傅';
-    promote.addEventListener('click', async () => {
-      await api(`/api/staff/${person.staff_id}`, {
-        method: 'PATCH',
-        body: { role: isMaster ? 'APPRENTICE' : 'MASTER' },
-      });
+    body.append(roleSwitch(person, async () => {
       await loadWeek(state.week);
       closeSheet();
-      toast(isMaster ? `${person.name} 已降回徒弟，下次排班不再指派` : `${person.name} 已升級為師傅，下次排班起納入`);
-    });
-    body.append(promote);
+    }));
 
     const toggle = el('button', `btn btn--block ${person.is_active ? 'btn--danger' : 'btn--quiet'}`);
     toggle.type = 'button';
@@ -990,6 +929,27 @@ function openStaffSheet(person) {
     });
     body.append(toggle);
   });
+}
+
+/** 身分切換：師傅／幹部／徒弟三選一。 */
+function roleSwitch(person, afterChange) {
+  const seg = el('div', 'segmented');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', `${person.name} 的身分`);
+
+  for (const { key, label } of ROLES) {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(person.role === key));
+    b.disabled = person.role === key;
+    b.addEventListener('click', async () => {
+      await api(`/api/staff/${person.staff_id}`, { method: 'PATCH', body: { role: key } });
+      await afterChange();
+      toast(`${person.name} 已改為${label}`);
+    });
+    seg.append(b);
+  }
+  return seg;
 }
 
 
@@ -1120,7 +1080,7 @@ function renderBackupAdmin(body) {
 async function afterAdminChange(body, message) {
   await loadWeek(state.week);
   renderSettings(body);
-  toast(message);
+  if (message) toast(message);
 }
 
 function renderItemAdmin(body) {
@@ -1314,7 +1274,8 @@ function renderStaffAdmin(body) {
   roleLabel.setAttribute('for', 'newStaffRole');
   const roleSelect = el('select');
   roleSelect.id = 'newStaffRole';
-  roleSelect.append(new Option('徒弟（不排班）', 'APPRENTICE'), new Option('師傅（可排班）', 'MASTER'));
+  for (const { key, label, hint } of ROLES) roleSelect.append(new Option(`${label}（${hint}）`, key));
+  roleSelect.value = 'APPRENTICE';
   roleField.append(roleLabel, roleSelect);
 
   grid.append(groupField, roleField);
@@ -1351,11 +1312,11 @@ function renderStaffAdmin(body) {
   form.append(submit);
   body.append(form);
 
-  for (const [role, label] of [['MASTER', '師傅（可排班）'], ['APPRENTICE', '徒弟（不排班）']]) {
-    const rows = state.data.staff.filter((s) => s.role === role);
+  for (const { key, label, hint } of ROLES) {
+    const rows = state.data.staff.filter((s) => s.role === key);
 
     const head = el('div', 'section-head');
-    head.append(el('h2', null, label));
+    head.append(el('h2', null, `${label}（${hint}）`));
     head.append(el('span', 'section-head__meta', `${rows.length} 位`));
     body.append(head);
 
@@ -1370,7 +1331,7 @@ function renderStaffAdmin(body) {
 }
 
 function staffAdminRow(person) {
-  const row = el('div', 'admin-row');
+  const top = el('div', 'admin-row__top');
 
   const main = el('div', 'admin-row__main');
   main.append(editableName(person.name, async (next) => {
@@ -1378,28 +1339,22 @@ function staffAdminRow(person) {
     await afterAdminChange($('#sheetBody'), `已改名為「${next}」`);
   }, !person.is_active));
   main.append(el('div', 'admin-row__sub', person.is_active ? person.staff_group : `${person.staff_group}・已停用`));
-  row.append(main);
+  top.append(main);
 
-  const swap = el('button', 'btn btn--sm btn--quiet');
-  swap.type = 'button';
-  swap.textContent = person.role === 'MASTER' ? '降為徒弟' : '升為師傅';
-  swap.addEventListener('click', async () => {
-    await api(`/api/staff/${person.staff_id}`, {
-      method: 'PATCH',
-      body: { role: person.role === 'MASTER' ? 'APPRENTICE' : 'MASTER' },
-    });
-    await afterAdminChange($('#sheetBody'), `${person.name} 已${person.role === 'MASTER' ? '降為徒弟' : '升為師傅'}`);
-  });
-  row.append(swap);
-
-  row.append(deleteControl(row, `刪除成員「${person.name}」`, async () => {
+  top.append(deleteControl(top, `刪除成員「${person.name}」`, async () => {
     const res = await api(`/api/staff/${person.staff_id}`, { method: 'DELETE' });
     await afterAdminChange($('#sheetBody'), res.vacated_slots
       ? `已刪除「${person.name}」，班表上 ${res.vacated_slots} 個名額變成空缺`
       : `已刪除「${person.name}」`);
   }));
 
-  return row;
+  // 身分佔一整列：三個按鈕擠在名字旁邊，手機上會小到按不到
+  const roles = roleSwitch(person, () => afterAdminChange($('#sheetBody'), ''));
+  roles.classList.add('segmented--sm');
+
+  const wrap = el('div', 'admin-row admin-row--stack');
+  wrap.append(top, roles);
+  return wrap;
 }
 
 /**
@@ -1559,7 +1514,7 @@ document.addEventListener('pointerup', async (e) => {
   // 未拖曳＝單擊，開啟換人面板
   const tag = e.target.closest?.('.tag');
   if (!tag) return;
-  openPlanX(Number(tag.dataset.detailId));
+  openPicker(Number(tag.dataset.detailId));
 });
 
 document.addEventListener('pointercancel', endDrag);

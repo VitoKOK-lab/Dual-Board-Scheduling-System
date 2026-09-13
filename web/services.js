@@ -29,7 +29,6 @@ function generate(week) {
     day_of_week: a.day_of_week ?? null,
     is_override: false,
     slot_index: a.slot_index ?? 0,
-    note: null,
   }))];
   data.generated_at = nowIso();
   settleFairness(week);
@@ -44,24 +43,25 @@ function setFlagDays(week, days) {
   return getWeekView(week);
 }
 
-/** 公差：主管手動把某個特殊任務指派給某人。 */
-function assignSpecial(week, { staffId, itemId, dayOfWeek = null, note = null }) {
+/**
+ * 公差：主管手動把某個特殊任務指派給某人。
+ * 只有「誰做了哪件任務」，沒有時間、沒有排班邏輯；作用就是計入公差次數。
+ */
+function assignSpecial(week, { staffId, itemId }) {
   const data = ensureWeek(week);
 
   const item = STATE.items.find((i) => i.item_id === itemId);
   if (!item) throw new Error('任務不存在');
   if (item.board_type !== BOARD.SPECIAL) throw new Error('這不是公差任務');
   if (!STATE.staff.some((s) => s.staff_id === staffId)) throw new Error('人員不存在');
-  if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) throw new Error('日期需為週一至週五或整週');
 
   data.rows.push({
     detail_id: nextId('detail'),
     staff_id: staffId,
     item_id: itemId,
-    day_of_week: dayOfWeek,
+    day_of_week: null,
     is_override: true,
-    slot_index: data.rows.filter((r) => r.item_id === itemId && r.day_of_week === dayOfWeek).length,
-    note,
+    slot_index: data.rows.filter((r) => r.item_id === itemId).length,
   });
   settleFairness(week);
   return getWeekView(week);
@@ -135,27 +135,33 @@ function unpublish(week) {
   return getWeekView(week);
 }
 
-/** 手動換人。主管具 100% 強制覆寫權，衝突只回報不阻擋。 */
+/**
+ * 手動換人。主管說了算，不阻擋也不回報衝突。
+ *
+ * 白板一個人同一時段只會站一個地方，所以把人放進白板名額時，
+ * 自動把他原本在同一時段的舊名額清空——以新的為準。
+ * 黑板不做這件事：同一人本來就可能同時擔任兩項黑板職務。
+ */
 function overrideAssignment(detailId, staffId) {
   const found = locateRow(detailId);
   if (!found) throw new Error('班表明細不存在');
   const { week, row } = found;
 
-  let conflicts = [];
-  if (staffId != null) {
-    const person = STATE.staff.find((s) => s.staff_id === staffId);
-    if (!person) throw new Error('人員不存在');
+  if (staffId != null && !STATE.staff.some((s) => s.staff_id === staffId)) throw new Error('人員不存在');
 
-    const items = new Map(STATE.items.map((i) => [i.item_id, i]));
-    const targetItem = items.get(row.item_id);
-    if (targetItem) {
-      const others = ensureWeek(week).rows.filter((r) => r.detail_id !== detailId);
-      conflicts = checkConflicts({
-        candidate: person,
-        targetItem,
-        targetDay: row.day_of_week,
-        index: buildBoardIndex(others, items),
-      });
+  const items = new Map(STATE.items.map((i) => [i.item_id, i]));
+  const targetItem = items.get(row.item_id);
+
+  if (staffId != null && targetItem?.board_type === BOARD.WHITEBOARD) {
+    for (const other of ensureWeek(week).rows) {
+      if (other.detail_id === detailId || other.staff_id !== staffId) continue;
+      const item = items.get(other.item_id);
+      if (!item || item.board_type !== BOARD.WHITEBOARD) continue;
+      if (item.shift_type !== targetItem.shift_type) continue;
+      // 升旗一天一輪，只有同一天才算重複；早修午休依週指派，同時段就算重複
+      if (targetItem.shift_type === SHIFT.FLAG && other.day_of_week !== row.day_of_week) continue;
+      other.staff_id = null;
+      other.is_override = true;
     }
   }
 
@@ -163,10 +169,7 @@ function overrideAssignment(detailId, staffId) {
   row.is_override = true;
   settleFairness(week);
 
-  return {
-    ...getWeekView(week),
-    conflicts: conflicts.map((code) => ({ code, label: CONFLICT_LABEL[code] ?? code })),
-  };
+  return getWeekView(week);
 }
 
 function swapAssignments(detailIdA, detailIdB) {
@@ -182,39 +185,6 @@ function swapAssignments(detailIdA, detailIdB) {
   b.row.is_override = true;
   settleFairness(a.week);
   return getWeekView(a.week);
-}
-
-/** Plan X 補位推薦。 */
-function planXRecommendations(detailId, { limit = 8 } = {}) {
-  const found = locateRow(detailId);
-  if (!found) throw new Error('班表明細不存在');
-  const { week, row } = found;
-
-  const items = new Map(STATE.items.map((i) => [i.item_id, i]));
-  const targetItem = items.get(row.item_id);
-  if (!targetItem) throw new Error('此名額沒有對應點位');
-
-  const candidates = recommendReplacements({
-    staff: sortedStaff().filter((s) => s.is_active && s.role === ROLE.MASTER),
-    targetItem,
-    targetDay: row.day_of_week,
-    rows: ensureWeek(week).rows.filter((r) => r.detail_id !== detailId),
-    itemsById: items,
-    stats: new Map(listFairness().map((f) => [f.staff_id, f])),
-    excludeStaffId: row.staff_id,
-    limit,
-  });
-
-  return {
-    detail_id: detailId,
-    item: targetItem,
-    day_of_week: row.day_of_week,
-    current_staff_id: row.staff_id,
-    candidates: candidates.map((c) => ({
-      ...c,
-      conflicts: c.conflicts.map((code) => ({ code, label: CONFLICT_LABEL[code] ?? code })),
-    })),
-  };
 }
 
 /** 供需摘要：白板依週指派，所以上限是「點位數 ≤ 可排班師傅數」。 */
