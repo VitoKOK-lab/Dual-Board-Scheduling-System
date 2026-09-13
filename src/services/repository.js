@@ -52,14 +52,14 @@ export function setStaffActive(db, staffId, isActive) {
 
 export function listItems(db) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order
        FROM location_tasks ORDER BY board_type, shift_type, sort_order, item_id`,
   ).all();
 }
 
 export function findItem(db, itemId) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order
        FROM location_tasks WHERE item_id = ?`,
   ).get(itemId) ?? null;
 }
@@ -81,6 +81,7 @@ export function updateItem(db, itemId, patch) {
     item_name: patch.itemName,
     required_capacity: patch.requiredCapacity,
     zone: patch.zone,
+    skip_on_flag_day: patch.skipOnFlagDay === undefined ? undefined : (patch.skipOnFlagDay ? 1 : 0),
     sort_order: patch.sortOrder,
   };
   const entries = Object.entries(columns).filter(([, v]) => v !== undefined);
@@ -153,8 +154,7 @@ export function createSchedule(db, weekStartDate) {
 
 export function listScheduleItems(db, scheduleId) {
   return db.prepare(
-    `SELECT detail_id, schedule_id, staff_id, item_id, day_of_week,
-            is_override, slot_index, note
+    `SELECT detail_id, schedule_id, staff_id, item_id, day_of_week, is_override, slot_index
        FROM schedule_items WHERE schedule_id = ?
       ORDER BY day_of_week, item_id, slot_index, detail_id`,
   ).all(scheduleId).map((r) => ({ ...r, is_override: !!r.is_override }));
@@ -169,8 +169,8 @@ export function findScheduleItem(db, detailId) {
 export function appendScheduleItems(db, scheduleId, assignments) {
   const insert = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   );
   for (const a of assignments) {
     insert.run(
@@ -180,17 +180,16 @@ export function appendScheduleItems(db, scheduleId, assignments) {
       a.day_of_week ?? null,
       a.is_override ? 1 : 0,
       a.slot_index ?? 0,
-      a.note ?? null,
     );
   }
 }
 
-/** 新增一筆公差指派（主管手動）。 */
-export function createScheduleItem(db, scheduleId, { staffId, itemId, dayOfWeek = null, note = null }) {
+/** 新增一筆公差指派（主管手動）。公差沒有時間，只有「誰做了哪件任務」。 */
+export function createScheduleItem(db, scheduleId, { staffId, itemId }) {
   const info = db.prepare(
-    `INSERT INTO schedule_items (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
-     VALUES (?, ?, ?, ?, 1, 0, ?)`,
-  ).run(scheduleId, staffId, itemId, dayOfWeek, note);
+    `INSERT INTO schedule_items (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
+     VALUES (?, ?, ?, NULL, 1, 0)`,
+  ).run(scheduleId, staffId, itemId);
   return Number(info.lastInsertRowid);
 }
 
@@ -257,7 +256,6 @@ export function exportAll(db) {
         day_of_week: r.day_of_week,
         is_override: r.is_override,
         slot_index: r.slot_index,
-        note: r.note ?? null,
       })),
       ledger,
     };
@@ -306,12 +304,14 @@ export function importAll(db, data) {
   }
 
   const insertItem = db.prepare(
-    `INSERT INTO location_tasks (item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO location_tasks
+       (item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const [i, it] of data.items.entries()) {
     insertItem.run(it.item_id, it.board_type, it.shift_type, it.item_name,
-      it.required_capacity ?? 1, it.zone ?? '', it.sort_order ?? (i + 1) * 10);
+      it.required_capacity ?? 1, it.zone ?? '', it.skip_on_flag_day ? 1 : 0,
+      it.sort_order ?? (i + 1) * 10);
   }
 
   const insertStat = db.prepare(
@@ -330,8 +330,8 @@ export function importAll(db, data) {
   );
   const insertRow = db.prepare(
     `INSERT INTO schedule_items
-       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (schedule_id, staff_id, item_id, day_of_week, is_override, slot_index)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   );
   // 帳本一定要跟著還原，否則之後撤回發布會沖銷不掉已累加的次數
   const insertLedger = db.prepare(
@@ -349,7 +349,7 @@ export function importAll(db, data) {
 
     for (const r of data_.rows ?? []) {
       insertRow.run(scheduleId, r.staff_id ?? null, r.item_id ?? null, r.day_of_week ?? null,
-        r.is_override ? 1 : 0, r.slot_index ?? 0, r.note ?? null);
+        r.is_override ? 1 : 0, r.slot_index ?? 0);
     }
     for (const [staffId, delta] of Object.entries(data_.ledger ?? {})) {
       insertLedger.run(scheduleId, Number(staffId),

@@ -1,8 +1,7 @@
-/** 班表服務層：生成、覆寫、補位、公差指派、發布結算。 */
+/** 班表服務層：生成、覆寫、換人、公差指派、發布結算。 */
 
 import { BOARD, SHIFT, WARNING, WEEK_DAYS } from '../domain/constants.js';
 import { generateWeeklyPlan } from '../domain/scheduler.js';
-import { CONFLICT_LABEL, buildBoardIndex, checkConflicts, recommendReplacements } from '../domain/planX.js';
 import { dateForDay, mondayOf } from '../domain/week.js';
 import { withTransaction } from '../db/index.js';
 import * as repo from './repository.js';
@@ -152,8 +151,11 @@ export function unpublish(db, scheduleId) {
 }
 
 /**
- * 手動換人。
- * 規格 §1：主管具 100% 強制覆寫權，因此衝突只回報不阻擋。
+ * 手動換人。主管說了算，不做任何阻擋也不回報衝突。
+ *
+ * 白板一個人同一時段只會站一個地方，所以把人放進白板名額時，
+ * 會自動把他原本在同一時段的舊名額清空——以新的為準。
+ * 黑板不做這件事：同一人本來就可能同時擔任兩項黑板職務。
  */
 export function overrideAssignment(db, detailId, staffId) {
   const row = repo.findScheduleItem(db, detailId);
@@ -161,33 +163,26 @@ export function overrideAssignment(db, detailId, staffId) {
 
   const schedule = repo.findScheduleById(db, row.schedule_id);
   const items = repo.itemsById(db);
-  let conflicts = [];
-
-  if (staffId != null) {
-    const person = repo.listStaff(db).find((s) => s.staff_id === staffId);
-    if (!person) throw Object.assign(new Error('人員不存在'), { status: 404 });
-
-    const targetItem = items.get(row.item_id);
-    if (targetItem) {
-      const others = repo.listScheduleItems(db, row.schedule_id).filter((r) => r.detail_id !== detailId);
-      conflicts = checkConflicts({
-        candidate: person,
-        targetItem,
-        targetDay: row.day_of_week,
-        index: buildBoardIndex(others, items),
-      });
-    }
-  }
+  const targetItem = items.get(row.item_id);
 
   withTransaction(db, () => {
+    if (staffId != null && targetItem?.board_type === BOARD.WHITEBOARD) {
+      for (const other of repo.listScheduleItems(db, row.schedule_id)) {
+        if (other.detail_id === detailId || other.staff_id !== staffId) continue;
+        const item = items.get(other.item_id);
+        if (!item || item.board_type !== BOARD.WHITEBOARD) continue;
+        if (item.shift_type !== targetItem.shift_type) continue;
+        // 升旗一天一輪，只有同一天才算重複；早修午休是依週指派，同時段就算重複
+        if (targetItem.shift_type === SHIFT.FLAG && other.day_of_week !== row.day_of_week) continue;
+        repo.updateScheduleItemStaff(db, other.detail_id, null);
+      }
+    }
+
     repo.updateScheduleItemStaff(db, detailId, staffId);
     settleFairness(db, row.schedule_id);
   });
 
-  return {
-    ...getWeekView(db, schedule.week_start_date),
-    conflicts: conflicts.map((code) => ({ code, label: CONFLICT_LABEL[code] ?? code })),
-  };
+  return getWeekView(db, schedule.week_start_date);
 }
 
 export function swapAssignments(db, detailIdA, detailIdB) {
@@ -205,22 +200,22 @@ export function swapAssignments(db, detailIdA, detailIdB) {
   return getWeekView(db, schedule.week_start_date);
 }
 
-/** 公差：主管手動把某個特殊任務指派給某人。 */
-export function assignSpecial(db, rawWeek, { staffId, itemId, dayOfWeek = null, note = null }) {
+/**
+ * 公差：主管手動把某個特殊任務指派給某人。
+ * 只有「誰做了哪件任務」，沒有時間、沒有排班邏輯；作用就是計入公差次數。
+ */
+export function assignSpecial(db, rawWeek, { staffId, itemId }) {
   const schedule = ensureSchedule(db, rawWeek);
 
   const item = repo.findItem(db, itemId);
   if (!item) throw Object.assign(new Error('任務不存在'), { status: 404 });
   if (item.board_type !== BOARD.SPECIAL) throw Object.assign(new Error('這不是公差任務'), { status: 400 });
-
-  const person = repo.listStaff(db).find((s) => s.staff_id === staffId);
-  if (!person) throw Object.assign(new Error('人員不存在'), { status: 404 });
-  if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) {
-    throw Object.assign(new Error('day_of_week 需為 1~5 或不填'), { status: 400 });
+  if (!repo.listStaff(db).some((s) => s.staff_id === staffId)) {
+    throw Object.assign(new Error('人員不存在'), { status: 404 });
   }
 
   withTransaction(db, () => {
-    repo.createScheduleItem(db, schedule.schedule_id, { staffId, itemId, dayOfWeek, note });
+    repo.createScheduleItem(db, schedule.schedule_id, { staffId, itemId });
     settleFairness(db, schedule.schedule_id);
   });
   return getWeekView(db, schedule.week_start_date);
@@ -236,38 +231,6 @@ export function removeSpecial(db, detailId) {
     settleFairness(db, row.schedule_id);
   });
   return getWeekView(db, schedule.week_start_date);
-}
-
-/** 換人推薦名單。 */
-export function planXRecommendations(db, detailId, { limit = 8 } = {}) {
-  const row = repo.findScheduleItem(db, detailId);
-  if (!row) throw Object.assign(new Error('班表明細不存在'), { status: 404 });
-
-  const items = repo.itemsById(db);
-  const targetItem = items.get(row.item_id);
-  if (!targetItem) throw Object.assign(new Error('此名額沒有對應點位'), { status: 400 });
-
-  const candidates = recommendReplacements({
-    staff: repo.listStaff(db, { activeOnly: true, mastersOnly: true }),
-    targetItem,
-    targetDay: row.day_of_week,
-    rows: repo.listScheduleItems(db, row.schedule_id).filter((r) => r.detail_id !== detailId),
-    itemsById: items,
-    stats: repo.fairnessMap(db),
-    excludeStaffId: row.staff_id,
-    limit,
-  });
-
-  return {
-    detail_id: detailId,
-    item: targetItem,
-    day_of_week: row.day_of_week,
-    current_staff_id: row.staff_id,
-    candidates: candidates.map((c) => ({
-      ...c,
-      conflicts: c.conflicts.map((code) => ({ code, label: CONFLICT_LABEL[code] ?? code })),
-    })),
-  };
 }
 
 /** 供需摘要：白板依週指派，所以上限是「點位數 ≤ 可排班師傅數」。 */

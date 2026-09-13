@@ -4,22 +4,32 @@ let nextId = 1;
 
 /**
  * 產生測試人員。預設全部是師傅（可排班）；
- * 傳入 `apprentices` 可讓最後 N 位變成徒弟（不排班）。
+ * `apprentices` 讓最後 N 位變成徒弟，`cadres` 再往前 N 位變成幹部。
+ * 徒弟與幹部都不進自動排班池。
  */
-export function makeStaff(count, { activeAll = true, apprentices = 0 } = {}) {
-  return Array.from({ length: count }, (_, i) => ({
-    staff_id: i + 1,
-    name: `員工${i + 1}`,
-    staff_group: i < count - apprentices ? '高二組' : '高一組',
-    role: i < count - apprentices ? ROLE.MASTER : ROLE.APPRENTICE,
-    is_active: activeAll,
-  }));
+export function makeStaff(count, { activeAll = true, apprentices = 0, cadres = 0 } = {}) {
+  const firstApprentice = count - apprentices;
+  const firstCadre = firstApprentice - cadres;
+
+  return Array.from({ length: count }, (_, i) => {
+    let role = ROLE.MASTER;
+    if (i >= firstApprentice) role = ROLE.APPRENTICE;
+    else if (i >= firstCadre) role = ROLE.CADRE;
+
+    return {
+      staff_id: i + 1,
+      name: `員工${i + 1}`,
+      staff_group: role === ROLE.MASTER ? '高二組' : '高一組',
+      role,
+      is_active: activeAll,
+    };
+  });
 }
 
 export const mastersOf = (staff) => staff.filter((s) => s.role === ROLE.MASTER);
 export const apprenticesOf = (staff) => staff.filter((s) => s.role === ROLE.APPRENTICE);
 
-export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '') {
+export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '', skipOnFlagDay = 0) {
   return {
     item_id: nextId++,
     board_type: board,
@@ -27,6 +37,7 @@ export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '')
     item_name: name,
     required_capacity: capacity,
     zone,
+    skip_on_flag_day: skipOnFlagDay,
     sort_order: sortOrder,
   };
 }
@@ -46,7 +57,8 @@ export function makeItems({
     item(BOARD.BLACKBOARD, SHIFT.ALL_WEEK, '交接', 1, 10),
     item(BOARD.BLACKBOARD, SHIFT.ALL_WEEK, '值日生', 1, 20),
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '餐車', 1, 30),
-    item(BOARD.BLACKBOARD, SHIFT.DAILY, '早修升旗', 1, 40),
+    // 升旗佔掉早修時段，所以升旗日當天不排這一項
+    item(BOARD.BLACKBOARD, SHIFT.DAILY, '早修', 1, 40, '', 1),
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '午休回來', 1, 50),
     ...names.slice(0, morningPoints).map((n, i) => item(BOARD.WHITEBOARD, SHIFT.MORNING, n, capacity, (i + 1) * 10)),
     // 升旗分定點與巡查兩區，屬同一時段

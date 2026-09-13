@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS staff (
     staff_id    INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
     staff_group TEXT    NOT NULL DEFAULT '',   -- 學級，如「高一組」「高二組」
-    role        TEXT    NOT NULL DEFAULT 'APPRENTICE' CHECK (role IN ('MASTER', 'APPRENTICE')),
+    -- MASTER 師傅（進排班池）／CADRE 幹部（不排班，可手動指派）／APPRENTICE 徒弟（不排班）
+    role        TEXT    NOT NULL DEFAULT 'APPRENTICE' CHECK (role IN ('MASTER', 'CADRE', 'APPRENTICE')),
     is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     sort_order  INTEGER NOT NULL DEFAULT 0     -- 名冊原始順序
 );
@@ -27,6 +28,8 @@ CREATE TABLE IF NOT EXISTS location_tasks (
     item_name          TEXT    NOT NULL,
     required_capacity  INTEGER NOT NULL DEFAULT 1 CHECK (required_capacity >= 1),
     zone               TEXT    NOT NULL DEFAULT '',   -- 升旗時段內的分區：定點／巡查
+    -- 升旗佔掉早修時段，所以升旗日當天不排這項職務（黑板「早修」）
+    skip_on_flag_day   INTEGER NOT NULL DEFAULT 0 CHECK (skip_on_flag_day IN (0, 1)),
     sort_order         INTEGER NOT NULL DEFAULT 0,
     UNIQUE (board_type, shift_type, item_name)
 );
@@ -60,8 +63,7 @@ CREATE TABLE IF NOT EXISTS schedule_items (
     item_id            INTEGER REFERENCES location_tasks (item_id) ON DELETE CASCADE,
     day_of_week        INTEGER CHECK (day_of_week BETWEEN 1 AND 5),  -- NULL = 全週職務
     is_override        INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
-    slot_index         INTEGER NOT NULL DEFAULT 0,       -- 同點位內第幾個名額，供前端穩定排序
-    note               TEXT                              -- 公差可附註說明
+    slot_index         INTEGER NOT NULL DEFAULT 0        -- 同點位內第幾個名額，供前端穩定排序
 );
 
 CREATE INDEX IF NOT EXISTS idx_schedule_items_schedule ON schedule_items (schedule_id);

@@ -55,7 +55,7 @@ export function buildRouter(db) {
   router.post('/api/schedules/:id/publish', ({ params }) => schedule.publish(db, requireInt(params.id, 'schedule_id')));
   router.post('/api/schedules/:id/unpublish', ({ params }) => schedule.unpublish(db, requireInt(params.id, 'schedule_id')));
 
-  // ---- 名額覆寫 / 互換 / Plan X ----
+  // ---- 名額覆寫 / 互換 ----
   router.patch('/api/assignments/:detailId', ({ params, body }) => {
     const detailId = requireInt(params.detailId, 'detail_id');
     const staffId = body.staff_id === null || body.staff_id === undefined
@@ -70,27 +70,11 @@ export function buildRouter(db) {
     requireInt(body.detail_id_b, 'detail_id_b'),
   ));
 
-  router.get('/api/assignments/:detailId/plan-x', ({ params, query }) => schedule.planXRecommendations(
-    db,
-    requireInt(params.detailId, 'detail_id'),
-    { limit: Number(query.get('limit') ?? 8) },
-  ));
-
   // ---- 公差（隊裡的特殊任務，主管手動指派） ----
-  router.post('/api/specials', ({ body }) => {
-    const week = requireWeek(body.week);
-    const dayOfWeek = body.day_of_week === null || body.day_of_week === undefined
-      ? null
-      : requireInt(body.day_of_week, 'day_of_week');
-    if (dayOfWeek != null && !WEEK_DAYS.includes(dayOfWeek)) throw bad('day_of_week 需為 1~5 或不填');
-
-    return schedule.assignSpecial(db, week, {
-      staffId: requireInt(body.staff_id, 'staff_id'),
-      itemId: requireInt(body.item_id, 'item_id'),
-      dayOfWeek,
-      note: String(body.note ?? '').trim() || null,
-    });
-  });
+  router.post('/api/specials', ({ body }) => schedule.assignSpecial(db, requireWeek(body.week), {
+    staffId: requireInt(body.staff_id, 'staff_id'),
+    itemId: requireInt(body.item_id, 'item_id'),
+  }));
 
   router.delete('/api/specials/:detailId', ({ params }) => schedule.removeSpecial(
     db, requireInt(params.detailId, 'detail_id'),
@@ -162,6 +146,7 @@ export function buildRouter(db) {
       if (zone && !Object.values(ZONE).includes(zone)) throw bad(`zone 需為 ${Object.values(ZONE).join(' / ')}`);
       patch.zone = zone;
     }
+    if (body.skip_on_flag_day !== undefined) patch.skipOnFlagDay = Boolean(body.skip_on_flag_day);
     if (body.sort_order !== undefined) patch.sortOrder = requireInt(body.sort_order, 'sort_order');
 
     try {

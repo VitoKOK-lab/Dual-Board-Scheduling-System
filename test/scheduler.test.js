@@ -43,6 +43,33 @@ test('黑板依星期展開、白板依週指派，公差完全不由排班引�
   }
 });
 
+test('升旗日當天不排黑板「早修」，那天的早修也就不會計入統計', () => {
+  const { plan, items, byId } = run({ staff: makeStaff(30), flagDays: [3] });
+  const morningDuty = items.find((i) => i.board_type === BOARD.BLACKBOARD && i.item_name === '早修');
+
+  const days = plan.assignments
+    .filter((a) => a.item_id === morningDuty.item_id)
+    .map((a) => a.day_of_week)
+    .sort();
+  assert.deepEqual(days, [1, 2, 4, 5], '週三升旗，當天不該有早修');
+
+  // 其他每日職務照排，五天都在
+  const others = items.filter((i) => i.board_type === BOARD.BLACKBOARD
+    && i.shift_type === SHIFT.DAILY && i.item_id !== morningDuty.item_id);
+  for (const other of others) {
+    const otherDays = plan.assignments.filter((a) => a.item_id === other.item_id).map((a) => a.day_of_week).sort();
+    assert.deepEqual(otherDays, WEEK_DAYS, `${other.item_name} 不該受升旗影響`);
+  }
+  assert.ok(byId.get(morningDuty.item_id).skip_on_flag_day);
+});
+
+test('沒有升旗日時，黑板「早修」五天都排', () => {
+  const { plan, items } = run({ staff: makeStaff(30) });
+  const morningDuty = items.find((i) => i.board_type === BOARD.BLACKBOARD && i.item_name === '早修');
+  const days = plan.assignments.filter((a) => a.item_id === morningDuty.item_id).map((a) => a.day_of_week).sort();
+  assert.deepEqual(days, WEEK_DAYS);
+});
+
 test('沒有指定升旗日時，升旗整塊是空的', () => {
   const { plan, byId } = run();
   const flag = plan.assignments.filter((a) => byId.get(a.item_id).shift_type === SHIFT.FLAG);
@@ -207,6 +234,25 @@ test('把徒弟升級為師傅後，他才會進入排班池', () => {
   const rookie = before.at(-1).staff_id;
   assert.ok(!placed(planBefore).some((a) => a.staff_id === rookie));
   assert.ok(placed(planAfter).some((a) => a.staff_id === rookie));
+});
+
+test('幹部不會被自動排班', () => {
+  const staff = makeStaff(30, { cadres: 6 });
+  const { plan } = run({ staff });
+  const roleOf = new Map(staff.map((s) => [s.staff_id, s.role]));
+
+  assert.ok(placed(plan).length > 0);
+  for (const a of placed(plan)) {
+    assert.equal(roleOf.get(a.staff_id), ROLE.MASTER, `${a.staff_id} 不是師傅卻被自動排到班`);
+  }
+});
+
+test('把師傅改成幹部後，他就退出排班池', () => {
+  const before = makeStaff(24);
+  const after = before.map((s, i) => (i === 0 ? { ...s, role: ROLE.CADRE } : s));
+
+  assert.ok(placed(run({ staff: before }).plan).some((a) => a.staff_id === 1));
+  assert.ok(!placed(run({ staff: after }).plan).some((a) => a.staff_id === 1));
 });
 
 test('停用的師傅不會被排班', () => {
