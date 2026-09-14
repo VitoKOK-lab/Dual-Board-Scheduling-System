@@ -111,9 +111,13 @@ test/              node:test 測試（week / scheduler / planX / api）
 | C | 白板早修 → 午休（依週指派） | **該時段整週僅站一個點位**、**本週不重複站同一點位** | — |
 | D | 白板升旗（僅在指定的升旗日） | 同一個升旗日僅站一個點位 | — |
 
-**升旗日不排早修**：升旗佔掉早修時段，那天沒有早修可督導，所以黑板的「早修」
-在升旗日不排、也不計入統計。這由 `location_tasks.skip_on_flag_day` 控制，
-種子資料已經標好；改名不影響，因為認的是這一列而不是名稱。
+**升旗日的早修**：升旗佔掉早修時段，那天所有人的名牌都在升旗的站點，
+**白板的早修點位當天是空的**——那天計入統計的是升旗。白板早修是依週指派
+（一週一筆），所以統計上不需要扣什麼：早修一週算一次、升旗每個升旗日各算一次。
+看板會在早修表下方標出是哪幾天。
+
+**黑板不受升旗影響**：餐車、早修、午休、校表這些事情照樣要有人做，
+做完再去升旗的站點，所以黑板每日職務五天都排。
 
 **公差不在這裡**：它是隊裡的特殊任務，由主管手動指派，重新排班不會動到它。
 
@@ -258,7 +262,6 @@ test/              node:test 測試（week / scheduler / planX / api）
 | `weekly_schedules.generated_at / published_at` | 稽核用時間戳 |
 | `staff.staff_group / sort_order` | 學級與名冊原始順序 |
 | `staff.role` | `MASTER` 師傅（自動排班）／`CADRE` 幹部（不排班，可手動指派）／`APPRENTICE` 徒弟 |
-| `location_tasks.skip_on_flag_day` | 升旗日當天不排這項職務（黑板「早修」） |
 | `location_tasks.zone` | 升旗時段內的分區：定點／巡查 |
 | `fairness_stats.flag_whiteboard_count` | 升旗時段的累計次數 |
 | `fairness_stats.special_count` | 公差的累計次數 |

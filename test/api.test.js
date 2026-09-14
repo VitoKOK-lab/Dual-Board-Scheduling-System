@@ -675,7 +675,7 @@ test('匯出的備份含有點位、成員、累計次數與各週班表', async
     assert.equal(week.status, 'PUBLISHED');
     assert.deepEqual(week.flag_days, [3]);
     assert.equal(week.rows.length, gen.body.assignments.length + 1, '公差也要進備份');
-    assert.equal(body.items.find((i) => i.item_name === '早修' && i.board_type === 'BLACKBOARD').skip_on_flag_day, 1);
+    assert.equal(body.items.filter((i) => i.board_type === 'SPECIAL').length, 8);
     assert.ok(Object.keys(week.ledger).length > 0, '已發布的班表應帶著結算帳本');
   });
 });

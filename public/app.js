@@ -313,8 +313,21 @@ function renderWhiteboard() {
   const filled = slots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
-  view.append(captionRow(`${SHIFT_LABEL[state.shift]} · 整週`, `${filled}/${total} 名額 · 一週一輪`));
+  const flagDays = state.data.schedule.flag_days ?? [];
+  const skipped = state.shift === 'MORNING' && flagDays.length > 0
+    ? flagDays.map((d) => `週${DAY_NAMES[d]}`).join('、')
+    : null;
+
+  view.append(captionRow(
+    `${SHIFT_LABEL[state.shift]} · 整週`,
+    skipped ? `${filled}/${total} 名額 · ${skipped}除外` : `${filled}/${total} 名額 · 一週一輪`,
+  ));
   view.append(pairTable(items, null, state.shift));
+
+  if (skipped) {
+    // 升旗佔掉早修時段，那幾天所有人的名牌都在升旗那邊，早修點位是空的
+    view.append(noticeEl(`${skipped}升旗，當天所有人都在升旗的站點，早修這些點位空著；那天計入統計的是升旗。`, 'topaz'));
+  }
   view.append(el('p', 'field__hint', '這個時段整週固定同一人，週一到週五都一樣；要換人點名牌即可。'));
 }
 

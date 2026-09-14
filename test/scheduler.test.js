@@ -43,31 +43,26 @@ test('黑板依星期展開、白板依週指派，公差完全不由排班引�
   }
 });
 
-test('升旗日當天不排黑板「早修」，那天的早修也就不會計入統計', () => {
-  const { plan, items, byId } = run({ staff: makeStaff(30), flagDays: [3] });
-  const morningDuty = items.find((i) => i.board_type === BOARD.BLACKBOARD && i.item_name === '早修');
+test('黑板職務不受升旗影響：升旗日當天照樣要有人做', () => {
+  const { plan, items } = run({ staff: makeStaff(30), flagDays: [3] });
 
-  const days = plan.assignments
-    .filter((a) => a.item_id === morningDuty.item_id)
-    .map((a) => a.day_of_week)
-    .sort();
-  assert.deepEqual(days, [1, 2, 4, 5], '週三升旗，當天不該有早修');
-
-  // 其他每日職務照排，五天都在
-  const others = items.filter((i) => i.board_type === BOARD.BLACKBOARD
-    && i.shift_type === SHIFT.DAILY && i.item_id !== morningDuty.item_id);
-  for (const other of others) {
-    const otherDays = plan.assignments.filter((a) => a.item_id === other.item_id).map((a) => a.day_of_week).sort();
-    assert.deepEqual(otherDays, WEEK_DAYS, `${other.item_name} 不該受升旗影響`);
+  for (const duty of items.filter((i) => i.board_type === BOARD.BLACKBOARD && i.shift_type === SHIFT.DAILY)) {
+    const days = plan.assignments.filter((a) => a.item_id === duty.item_id).map((a) => a.day_of_week).sort();
+    assert.deepEqual(days, WEEK_DAYS, `${duty.item_name} 在升旗日也要排`);
   }
-  assert.ok(byId.get(morningDuty.item_id).skip_on_flag_day);
 });
 
-test('沒有升旗日時，黑板「早修」五天都排', () => {
-  const { plan, items } = run({ staff: makeStaff(30) });
-  const morningDuty = items.find((i) => i.board_type === BOARD.BLACKBOARD && i.item_name === '早修');
-  const days = plan.assignments.filter((a) => a.item_id === morningDuty.item_id).map((a) => a.day_of_week).sort();
-  assert.deepEqual(days, WEEK_DAYS);
+test('同一個人可以當天先做黑板職務，再去站升旗', () => {
+  const { plan, byId } = run({ staff: makeStaff(24), flagDays: [3] });
+
+  const onWednesday = new Map();
+  for (const a of placed(plan).filter((x) => x.day_of_week === 3)) {
+    const kind = byId.get(a.item_id).board_type === BOARD.BLACKBOARD ? 'blackboard' : 'flag';
+    if (!onWednesday.has(a.staff_id)) onWednesday.set(a.staff_id, new Set());
+    onWednesday.get(a.staff_id).add(kind);
+  }
+  const both = [...onWednesday.values()].filter((kinds) => kinds.size === 2);
+  assert.ok(both.length > 0, '人力吃緊時，黑板職務與升旗本來就會落在同一個人身上');
 });
 
 test('沒有指定升旗日時，升旗整塊是空的', () => {
