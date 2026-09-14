@@ -6,14 +6,15 @@
 const RING_R = 32;
 const RING_C = 2 * Math.PI * RING_R;
 const DAY_NAMES = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五' };
-const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];
 const SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休', SPECIAL: '公差' };
-/** 公平性維度 → 欄位、標籤、顏色、長條樣式 */
+/**
+ * 公平性維度 → 欄位、標籤、顏色、長條樣式。
+ *
+ * 只統計黑板與公差：白板的點位是所有人每天都要站的，人人有份，
+ * 統計它沒有意義；會輪到誰、輪幾次有差別的是黑板職務與公差。
+ */
 const DIMENSIONS = [
   { key: 'blackboard_count', label: '黑板', color: 'var(--sapphire)', bar: 'bar--bb' },
-  { key: 'morning_whiteboard_count', label: '早修', color: 'var(--emerald)', bar: 'bar--am' },
-  { key: 'flag_whiteboard_count', label: '升旗', color: 'var(--topaz)', bar: 'bar--fl' },
-  { key: 'noon_whiteboard_count', label: '午休', color: 'var(--amethyst)', bar: 'bar--pm' },
   { key: 'special_count', label: '公差', color: 'var(--ruby)', bar: 'bar--sp' },
 ];
 const DRAG_THRESHOLD = 8;
@@ -25,11 +26,19 @@ const ROLES = [
 ];
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.key, r.label]));
 
+/** 看板頂端的切換：黑板與白板三個時段共用一頁。 */
+const BOARD_VIEWS = [
+  { key: 'BLACKBOARD', label: '黑板' },
+  { key: 'MORNING', label: '早修' },
+  { key: 'FLAG', label: '升旗' },
+  { key: 'NOON', label: '午休' },
+];
+
 const state = {
   week: null,
   data: null,
-  tab: 'blackboard',
-  shift: 'MORNING',
+  tab: 'board',
+  board: 'BLACKBOARD',
   itemsById: new Map(),
   staffById: new Map(),
 };
@@ -229,13 +238,33 @@ function pairTable(items, day, boardKind, headLabel = '點位') {
 
 /* ---------- 視圖：黑板 ---------- */
 
-function renderBlackboard() {
-  const view = $('#view-blackboard');
+function renderBoard() {
+  const view = $('#view-board');
   view.replaceChildren();
-
-  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
   view.classList.add('stagger');
 
+  const seg = el('div', 'segmented');
+  seg.setAttribute('role', 'tablist');
+  for (const { key, label } of BOARD_VIEWS) {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.dataset.shift = key;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(state.board === key));
+    b.addEventListener('click', () => { state.board = key; render(); });
+    seg.append(b);
+  }
+  view.append(seg);
+
+  // 升旗那一頁就算還沒排班也要進得去——升旗日通常是排班前先指定的
+  if (state.board === 'FLAG') { renderFlagBoard(view); return; }
+  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
+
+  if (state.board === 'BLACKBOARD') renderBlackboard(view);
+  else renderWeeklyShift(view, state.board);
+}
+
+function renderBlackboard(view) {
   const gaps = state.data.warnings.filter((w) => {
     const item = state.itemsById.get(w.item_id);
     return item && item.board_type === 'BLACKBOARD';
@@ -285,44 +314,23 @@ function renderBlackboard() {
 
 /* ---------- 視圖：白板 ---------- */
 
-function renderWhiteboard() {
-  const view = $('#view-whiteboard');
-  view.replaceChildren();
-
-  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
-  view.classList.add('stagger');
-
-  const seg = el('div', 'segmented');
-  seg.setAttribute('role', 'tablist');
-  for (const shift of WHITEBOARD_SHIFTS) {
-    const b = el('button', null, SHIFT_LABEL[shift]);
-    b.type = 'button';
-    b.dataset.shift = shift;
-    b.setAttribute('role', 'tab');
-    b.setAttribute('aria-selected', String(state.shift === shift));
-    b.addEventListener('click', () => { state.shift = shift; render(); });
-    seg.append(b);
-  }
-  view.append(seg);
-
-  if (state.shift === 'FLAG') { renderFlagBoard(view); return; }
-
-  // 早修與午休是依週指派：一個點位整週同一人，一週洗牌一次
-  const items = itemsOf('WHITEBOARD', state.shift);
+/** 白板的早修與午休：依週指派，一個點位整週同一人。 */
+function renderWeeklyShift(view, shift) {
+  const items = itemsOf('WHITEBOARD', shift);
   const slots = items.flatMap((i) => slotsOf(i.item_id, null));
   const filled = slots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
   const flagDays = state.data.schedule.flag_days ?? [];
-  const skipped = state.shift === 'MORNING' && flagDays.length > 0
+  const skipped = shift === 'MORNING' && flagDays.length > 0
     ? flagDays.map((d) => `週${DAY_NAMES[d]}`).join('、')
     : null;
 
   view.append(captionRow(
-    `${SHIFT_LABEL[state.shift]} · 整週`,
+    `${SHIFT_LABEL[shift]} · 整週`,
     skipped ? `${filled}/${total} 名額 · ${skipped}除外` : `${filled}/${total} 名額 · 一週一輪`,
   ));
-  view.append(pairTable(items, null, state.shift));
+  view.append(pairTable(items, null, shift));
 
   if (skipped) {
     // 升旗佔掉早修時段，那幾天所有人的名牌都在升旗那邊，早修點位是空的
@@ -610,7 +618,7 @@ function renderStats() {
     head.append(el('h3', null, '師傅輪替均衡度'), badge(`${activeMasters.length} 位`, 'emerald'));
     card.append(head);
 
-    const rings = el('div', 'rings rings--wide');
+    const rings = el('div', 'rings');
     for (const d of DIMENSIONS) {
       rings.append(ringEl(d.label, balance(activeMasters, d.key), d.color));
     }
@@ -621,7 +629,7 @@ function renderStats() {
 
   const idle = activeMasters.filter((f) => DIMENSIONS.every((d) => f[d.key] === 0));
   if (idle.length > 0 && (state.data.published_weeks ?? 0) > 0) {
-    view.append(noticeEl(`累計仍為零任務：${idle.map((f) => f.name).join('、')}`, 'ruby'));
+    view.append(noticeEl(`黑板與公差累計都是零：${idle.map((f) => f.name).join('、')}`, 'ruby'));
   }
 
   const legend = el('div', 'legend');
@@ -916,7 +924,7 @@ function openStaffSheet(person) {
         return { pct: mean > 0 ? Math.min(150, Math.round((value / mean) * 100)) : 100, min: value, max: Math.round(mean) };
       };
 
-      const rings = el('div', 'rings rings--wide');
+      const rings = el('div', 'rings');
       for (const d of DIMENSIONS) rings.append(ringEl(d.label, share(person[d.key], d.key), d.color));
       body.append(rings);
       body.append(el('p', 'field__hint', '環代表相對於師傅平均的比例，環下為「本人次數／師傅平均」。'));
@@ -1560,21 +1568,20 @@ function render() {
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.dataset.view !== state.tab;
   }
-  for (const tab of document.querySelectorAll('.tab')) {
+  for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     const on = tab.dataset.tab === state.tab;
     tab.classList.toggle('is-active', on);
     if (on) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   }
 
-  if (state.tab === 'blackboard') renderBlackboard();
-  else if (state.tab === 'whiteboard') renderWhiteboard();
+  if (state.tab === 'board') renderBoard();
   else if (state.tab === 'special') renderSpecial();
   else renderStats();
 }
 
 function bindChrome() {
-  for (const tab of document.querySelectorAll('.tab')) {
+  for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
       render();

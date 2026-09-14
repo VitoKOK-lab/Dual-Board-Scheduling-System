@@ -330,7 +330,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 /* ---- 8. 底部導覽 ---- */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
+  display: grid; grid-template-columns: repeat(4, 1fr); align-items: center;
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -347,19 +347,19 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .tab.is-active { color: var(--ink); font-weight: 700; }
 .tab.is-active .icon { stroke-width: 2.2; }
 
-.fab {
-  justify-self: center;
-  width: 58px; height: 58px; margin-top: -22px;
+/* 自動排班：跟其他分頁同一格，用漸層圓章突顯它是主要動作 */
+.tab--action { color: var(--ink); font-weight: 700; }
+.tab__badge {
   display: grid; place-items: center;
-  border: 0; border-radius: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(140deg, var(--emerald), var(--amethyst));
   color: #FFFFFF;
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 2px 6px rgba(27, 27, 36, .18);
   transition: transform 160ms var(--ease-out);
 }
-.fab .icon { width: 26px; height: 26px; stroke-width: 2; }
-.fab:active { transform: scale(.93); }
-.fab:disabled { opacity: .5; }
+.tab--action .icon { width: 19px; height: 19px; stroke-width: 2.2; }
+.tab--action:active .tab__badge { transform: scale(.9); }
+.tab--action:disabled { opacity: .45; }
 
 /* ---- 9. Bottom sheet ---- */
 .scrim {
@@ -819,26 +819,22 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 </header>
 
 <main class="screen" id="screen">
-  <!-- 黑板 -->
-  <section class="view" id="view-blackboard" data-view="blackboard"></section>
-  <!-- 白板 -->
-  <section class="view" id="view-whiteboard" data-view="whiteboard" hidden></section>
+  <!-- 看板：黑板與白板三個時段共用一頁，頂端切換 -->
+  <section class="view" id="view-board" data-view="board"></section>
   <!-- 公差 -->
   <section class="view" id="view-special" data-view="special" hidden></section>
   <!-- 統計 -->
   <section class="view" id="view-stats" data-view="stats" hidden></section>
 </main>
 
-<!-- ─── 底部導覽 + 中央主要動作 ─── -->
+<!-- ─── 底部導覽：看板、自動排班、公差、統計 ─── -->
 <nav class="tabbar" aria-label="主要導覽">
-  <button class="tab is-active" data-tab="blackboard" type="button" aria-current="page">
+  <button class="tab is-active" data-tab="board" type="button" aria-current="page">
     <svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span>黑板</span>
   </button>
-  <button class="tab" data-tab="whiteboard" type="button">
-    <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>白板</span>
-  </button>
-  <button class="fab" id="generateBtn" type="button" aria-label="一鍵自動排班">
-    <svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>
+  <button class="tab tab--action" id="generateBtn" type="button">
+    <span class="tab__badge"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg></span>
+    <span>自動排班</span>
   </button>
   <button class="tab" data-tab="special" type="button">
     <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>公差</span>
@@ -2147,12 +2143,14 @@ async function api(path, { method = 'GET', body } = {}) {
 const RING_R = 32;
 const RING_C = 2 * Math.PI * RING_R;
 const DAY_NAMES = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五' };
-/** 公平性維度 → 欄位、標籤、顏色、長條樣式 */
+/**
+ * 公平性維度 → 欄位、標籤、顏色、長條樣式。
+ *
+ * 只統計黑板與公差：白板的點位是所有人每天都要站的，人人有份，
+ * 統計它沒有意義；會輪到誰、輪幾次有差別的是黑板職務與公差。
+ */
 const DIMENSIONS = [
   { key: 'blackboard_count', label: '黑板', color: 'var(--sapphire)', bar: 'bar--bb' },
-  { key: 'morning_whiteboard_count', label: '早修', color: 'var(--emerald)', bar: 'bar--am' },
-  { key: 'flag_whiteboard_count', label: '升旗', color: 'var(--topaz)', bar: 'bar--fl' },
-  { key: 'noon_whiteboard_count', label: '午休', color: 'var(--amethyst)', bar: 'bar--pm' },
   { key: 'special_count', label: '公差', color: 'var(--ruby)', bar: 'bar--sp' },
 ];
 const DRAG_THRESHOLD = 8;
@@ -2163,11 +2161,19 @@ const ROLES = [
   { key: 'APPRENTICE', label: '徒弟', hint: '不排班' },
 ];
 
+/** 看板頂端的切換：黑板與白板三個時段共用一頁。 */
+const BOARD_VIEWS = [
+  { key: 'BLACKBOARD', label: '黑板' },
+  { key: 'MORNING', label: '早修' },
+  { key: 'FLAG', label: '升旗' },
+  { key: 'NOON', label: '午休' },
+];
+
 const state = {
   week: null,
   data: null,
-  tab: 'blackboard',
-  shift: 'MORNING',
+  tab: 'board',
+  board: 'BLACKBOARD',
   itemsById: new Map(),
   staffById: new Map(),
 };
@@ -2345,13 +2351,33 @@ function pairTable(items, day, boardKind, headLabel = '點位') {
 
 /* ---------- 視圖：黑板 ---------- */
 
-function renderBlackboard() {
-  const view = $('#view-blackboard');
+function renderBoard() {
+  const view = $('#view-board');
   view.replaceChildren();
-
-  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
   view.classList.add('stagger');
 
+  const seg = el('div', 'segmented');
+  seg.setAttribute('role', 'tablist');
+  for (const { key, label } of BOARD_VIEWS) {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.dataset.shift = key;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(state.board === key));
+    b.addEventListener('click', () => { state.board = key; render(); });
+    seg.append(b);
+  }
+  view.append(seg);
+
+  // 升旗那一頁就算還沒排班也要進得去——升旗日通常是排班前先指定的
+  if (state.board === 'FLAG') { renderFlagBoard(view); return; }
+  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
+
+  if (state.board === 'BLACKBOARD') renderBlackboard(view);
+  else renderWeeklyShift(view, state.board);
+}
+
+function renderBlackboard(view) {
   const gaps = state.data.warnings.filter((w) => {
     const item = state.itemsById.get(w.item_id);
     return item && item.board_type === 'BLACKBOARD';
@@ -2401,44 +2427,23 @@ function renderBlackboard() {
 
 /* ---------- 視圖：白板 ---------- */
 
-function renderWhiteboard() {
-  const view = $('#view-whiteboard');
-  view.replaceChildren();
-
-  if (!state.data.schedule.has_items) { view.append(emptyState()); return; }
-  view.classList.add('stagger');
-
-  const seg = el('div', 'segmented');
-  seg.setAttribute('role', 'tablist');
-  for (const shift of WHITEBOARD_SHIFTS) {
-    const b = el('button', null, SHIFT_LABEL[shift]);
-    b.type = 'button';
-    b.dataset.shift = shift;
-    b.setAttribute('role', 'tab');
-    b.setAttribute('aria-selected', String(state.shift === shift));
-    b.addEventListener('click', () => { state.shift = shift; render(); });
-    seg.append(b);
-  }
-  view.append(seg);
-
-  if (state.shift === 'FLAG') { renderFlagBoard(view); return; }
-
-  // 早修與午休是依週指派：一個點位整週同一人，一週洗牌一次
-  const items = itemsOf('WHITEBOARD', state.shift);
+/** 白板的早修與午休：依週指派，一個點位整週同一人。 */
+function renderWeeklyShift(view, shift) {
+  const items = itemsOf('WHITEBOARD', shift);
   const slots = items.flatMap((i) => slotsOf(i.item_id, null));
   const filled = slots.filter((s) => s.staff_id != null).length;
   const total = items.reduce((sum, i) => sum + i.required_capacity, 0);
 
   const flagDays = state.data.schedule.flag_days ?? [];
-  const skipped = state.shift === 'MORNING' && flagDays.length > 0
+  const skipped = shift === 'MORNING' && flagDays.length > 0
     ? flagDays.map((d) => `週${DAY_NAMES[d]}`).join('、')
     : null;
 
   view.append(captionRow(
-    `${SHIFT_LABEL[state.shift]} · 整週`,
+    `${SHIFT_LABEL[shift]} · 整週`,
     skipped ? `${filled}/${total} 名額 · ${skipped}除外` : `${filled}/${total} 名額 · 一週一輪`,
   ));
-  view.append(pairTable(items, null, state.shift));
+  view.append(pairTable(items, null, shift));
 
   if (skipped) {
     // 升旗佔掉早修時段，那幾天所有人的名牌都在升旗那邊，早修點位是空的
@@ -2726,7 +2731,7 @@ function renderStats() {
     head.append(el('h3', null, '師傅輪替均衡度'), badge(`${activeMasters.length} 位`, 'emerald'));
     card.append(head);
 
-    const rings = el('div', 'rings rings--wide');
+    const rings = el('div', 'rings');
     for (const d of DIMENSIONS) {
       rings.append(ringEl(d.label, balance(activeMasters, d.key), d.color));
     }
@@ -2737,7 +2742,7 @@ function renderStats() {
 
   const idle = activeMasters.filter((f) => DIMENSIONS.every((d) => f[d.key] === 0));
   if (idle.length > 0 && (state.data.published_weeks ?? 0) > 0) {
-    view.append(noticeEl(`累計仍為零任務：${idle.map((f) => f.name).join('、')}`, 'ruby'));
+    view.append(noticeEl(`黑板與公差累計都是零：${idle.map((f) => f.name).join('、')}`, 'ruby'));
   }
 
   const legend = el('div', 'legend');
@@ -3049,7 +3054,7 @@ function openStaffSheet(person) {
         return { pct: mean > 0 ? Math.min(150, Math.round((value / mean) * 100)) : 100, min: value, max: Math.round(mean) };
       };
 
-      const rings = el('div', 'rings rings--wide');
+      const rings = el('div', 'rings');
       for (const d of DIMENSIONS) rings.append(ringEl(d.label, share(person[d.key], d.key), d.color));
       body.append(rings);
       body.append(el('p', 'field__hint', '環代表相對於師傅平均的比例，環下為「本人次數／師傅平均」。'));
@@ -3699,21 +3704,20 @@ function render() {
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.dataset.view !== state.tab;
   }
-  for (const tab of document.querySelectorAll('.tab')) {
+  for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     const on = tab.dataset.tab === state.tab;
     tab.classList.toggle('is-active', on);
     if (on) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   }
 
-  if (state.tab === 'blackboard') renderBlackboard();
-  else if (state.tab === 'whiteboard') renderWhiteboard();
+  if (state.tab === 'board') renderBoard();
   else if (state.tab === 'special') renderSpecial();
   else renderStats();
 }
 
 function bindChrome() {
-  for (const tab of document.querySelectorAll('.tab')) {
+  for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
       render();

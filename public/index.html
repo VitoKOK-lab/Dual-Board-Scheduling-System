@@ -70,26 +70,22 @@
 </header>
 
 <main class="screen" id="screen">
-  <!-- 黑板 -->
-  <section class="view" id="view-blackboard" data-view="blackboard"></section>
-  <!-- 白板 -->
-  <section class="view" id="view-whiteboard" data-view="whiteboard" hidden></section>
+  <!-- 看板：黑板與白板三個時段共用一頁，頂端切換 -->
+  <section class="view" id="view-board" data-view="board"></section>
   <!-- 公差 -->
   <section class="view" id="view-special" data-view="special" hidden></section>
   <!-- 統計 -->
   <section class="view" id="view-stats" data-view="stats" hidden></section>
 </main>
 
-<!-- ─── 底部導覽 + 中央主要動作 ─── -->
+<!-- ─── 底部導覽：看板、自動排班、公差、統計 ─── -->
 <nav class="tabbar" aria-label="主要導覽">
-  <button class="tab is-active" data-tab="blackboard" type="button" aria-current="page">
+  <button class="tab is-active" data-tab="board" type="button" aria-current="page">
     <svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span>黑板</span>
   </button>
-  <button class="tab" data-tab="whiteboard" type="button">
-    <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>白板</span>
-  </button>
-  <button class="fab" id="generateBtn" type="button" aria-label="一鍵自動排班">
-    <svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>
+  <button class="tab tab--action" id="generateBtn" type="button">
+    <span class="tab__badge"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg></span>
+    <span>自動排班</span>
   </button>
   <button class="tab" data-tab="special" type="button">
     <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>公差</span>
