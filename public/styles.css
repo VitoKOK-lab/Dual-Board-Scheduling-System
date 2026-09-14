@@ -324,7 +324,7 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 /* ---- 8. 底部導覽 ---- */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
+  display: grid; grid-template-columns: repeat(4, 1fr); align-items: center;
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -341,19 +341,19 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 .tab.is-active { color: var(--ink); font-weight: 700; }
 .tab.is-active .icon { stroke-width: 2.2; }
 
-.fab {
-  justify-self: center;
-  width: 58px; height: 58px; margin-top: -22px;
+/* 自動排班：跟其他分頁同一格，用漸層圓章突顯它是主要動作 */
+.tab--action { color: var(--ink); font-weight: 700; }
+.tab__badge {
   display: grid; place-items: center;
-  border: 0; border-radius: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(140deg, var(--emerald), var(--amethyst));
   color: #FFFFFF;
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 2px 6px rgba(27, 27, 36, .18);
   transition: transform 160ms var(--ease-out);
 }
-.fab .icon { width: 26px; height: 26px; stroke-width: 2; }
-.fab:active { transform: scale(.93); }
-.fab:disabled { opacity: .5; }
+.tab--action .icon { width: 19px; height: 19px; stroke-width: 2.2; }
+.tab--action:active .tab__badge { transform: scale(.9); }
+.tab--action:disabled { opacity: .45; }
 
 /* ---- 9. Bottom sheet ---- */
 .scrim {

@@ -59,7 +59,7 @@ const domain = DOMAIN_FILES
 const PATCHES = [
   {
     why: '領域層已提供同名常數，移除重複宣告',
-    from: `const WHITEBOARD_SHIFTS = ['MORNING', 'FLAG', 'NOON'];\nconst SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休', SPECIAL: '公差' };\n`,
+    from: `const SHIFT_LABEL = { MORNING: '早修', FLAG: '升旗', NOON: '午休', SPECIAL: '公差' };\n`,
     to: '',
   },
   {
