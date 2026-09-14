@@ -52,14 +52,14 @@ export function setStaffActive(db, staffId, isActive) {
 
 export function listItems(db) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
        FROM location_tasks ORDER BY board_type, shift_type, sort_order, item_id`,
   ).all();
 }
 
 export function findItem(db, itemId) {
   return db.prepare(
-    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order
+    `SELECT item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order
        FROM location_tasks WHERE item_id = ?`,
   ).get(itemId) ?? null;
 }
@@ -81,7 +81,6 @@ export function updateItem(db, itemId, patch) {
     item_name: patch.itemName,
     required_capacity: patch.requiredCapacity,
     zone: patch.zone,
-    skip_on_flag_day: patch.skipOnFlagDay === undefined ? undefined : (patch.skipOnFlagDay ? 1 : 0),
     sort_order: patch.sortOrder,
   };
   const entries = Object.entries(columns).filter(([, v]) => v !== undefined);
@@ -305,13 +304,12 @@ export function importAll(db, data) {
 
   const insertItem = db.prepare(
     `INSERT INTO location_tasks
-       (item_id, board_type, shift_type, item_name, required_capacity, zone, skip_on_flag_day, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (item_id, board_type, shift_type, item_name, required_capacity, zone, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const [i, it] of data.items.entries()) {
     insertItem.run(it.item_id, it.board_type, it.shift_type, it.item_name,
-      it.required_capacity ?? 1, it.zone ?? '', it.skip_on_flag_day ? 1 : 0,
-      it.sort_order ?? (i + 1) * 10);
+      it.required_capacity ?? 1, it.zone ?? '', it.sort_order ?? (i + 1) * 10);
   }
 
   const insertStat = db.prepare(

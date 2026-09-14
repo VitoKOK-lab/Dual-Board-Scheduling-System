@@ -146,7 +146,6 @@ export function buildRouter(db) {
       if (zone && !Object.values(ZONE).includes(zone)) throw bad(`zone 需為 ${Object.values(ZONE).join(' / ')}`);
       patch.zone = zone;
     }
-    if (body.skip_on_flag_day !== undefined) patch.skipOnFlagDay = Boolean(body.skip_on_flag_day);
     if (body.sort_order !== undefined) patch.sortOrder = requireInt(body.sort_order, 'sort_order');
 
     try {

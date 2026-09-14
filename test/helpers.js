@@ -29,7 +29,7 @@ export function makeStaff(count, { activeAll = true, apprentices = 0, cadres = 0
 export const mastersOf = (staff) => staff.filter((s) => s.role === ROLE.MASTER);
 export const apprenticesOf = (staff) => staff.filter((s) => s.role === ROLE.APPRENTICE);
 
-export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '', skipOnFlagDay = 0) {
+export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '') {
   return {
     item_id: nextId++,
     board_type: board,
@@ -37,7 +37,6 @@ export function item(board, shift, name, capacity = 1, sortOrder = 0, zone = '',
     item_name: name,
     required_capacity: capacity,
     zone,
-    skip_on_flag_day: skipOnFlagDay,
     sort_order: sortOrder,
   };
 }
@@ -57,8 +56,7 @@ export function makeItems({
     item(BOARD.BLACKBOARD, SHIFT.ALL_WEEK, '交接', 1, 10),
     item(BOARD.BLACKBOARD, SHIFT.ALL_WEEK, '值日生', 1, 20),
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '餐車', 1, 30),
-    // 升旗佔掉早修時段，所以升旗日當天不排這一項
-    item(BOARD.BLACKBOARD, SHIFT.DAILY, '早修', 1, 40, '', 1),
+    item(BOARD.BLACKBOARD, SHIFT.DAILY, '早修', 1, 40),
     item(BOARD.BLACKBOARD, SHIFT.DAILY, '午休回來', 1, 50),
     ...names.slice(0, morningPoints).map((n, i) => item(BOARD.WHITEBOARD, SHIFT.MORNING, n, capacity, (i + 1) * 10)),
     // 升旗分定點與巡查兩區，屬同一時段

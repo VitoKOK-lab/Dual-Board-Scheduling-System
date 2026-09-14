@@ -7,8 +7,7 @@
  * 執行順序：
  *   A. 黑板全週職務（交接、值日生）—— 1 人 1 週
  *   B. 黑板每日職務（餐車、早修、午休、校表）—— 每天各 1 人。
- *      標記 skip_on_flag_day 的職務（黑板「早修」）在升旗日不排——
- *      升旗佔掉早修時段，那天沒有早修可督導，自然也不計入統計。
+ *      黑板職務不受升旗影響：那些事情照樣要有人做，做完再去升旗的站點。
  *   C. 白板依週指派（早修、午休）—— 一個點位整週同一人，一週洗牌一次
  *   D. 白板升旗 —— 只在指定的升旗日才排，平常整塊空著
  *
@@ -136,13 +135,10 @@ export function generateWeeklyPlan({
   // B. 黑板 — 每日輪替職務（餐車、早修、午休、校表）
   // ---------------------------------------------------------------
   const dailyItems = selectItems(items, BOARD.BLACKBOARD, SHIFT.DAILY);
-  const flagDaySet = new Set([...new Set(flagDays)].filter((d) => WEEK_DAYS.includes(d)));
 
   for (const day of WEEK_DAYS) {
     const taken = state.blackboardByDay.get(day);
     for (const item of dailyItems) {
-      // 升旗日不排早修：那天全隊都在升旗，沒有早修可督導
-      if (item.skip_on_flag_day && flagDaySet.has(day)) continue;
       for (let slot = 0; slot < slotsOf(item); slot += 1) {
         const { staff: chosen, relaxed } = pickCandidate(
           pool,
@@ -213,7 +209,7 @@ export function generateWeeklyPlan({
   // D. 白板升旗 —— 只在指定的升旗日排，其餘時候整塊空著
   // ---------------------------------------------------------------
   const flagItems = selectItems(items, BOARD.WHITEBOARD, SHIFT.FLAG);
-  const days = [...flagDaySet].sort();
+  const days = [...new Set(flagDays)].filter((d) => WEEK_DAYS.includes(d)).sort();
 
   const flagRequired = totalSlots(flagItems);
   if (flagItems.length > 0 && days.length > 0 && flagRequired > pool.length) {

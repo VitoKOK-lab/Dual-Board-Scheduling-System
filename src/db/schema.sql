@@ -28,8 +28,6 @@ CREATE TABLE IF NOT EXISTS location_tasks (
     item_name          TEXT    NOT NULL,
     required_capacity  INTEGER NOT NULL DEFAULT 1 CHECK (required_capacity >= 1),
     zone               TEXT    NOT NULL DEFAULT '',   -- 升旗時段內的分區：定點／巡查
-    -- 升旗佔掉早修時段，所以升旗日當天不排這項職務（黑板「早修」）
-    skip_on_flag_day   INTEGER NOT NULL DEFAULT 0 CHECK (skip_on_flag_day IN (0, 1)),
     sort_order         INTEGER NOT NULL DEFAULT 0,
     UNIQUE (board_type, shift_type, item_name)
 );

@@ -139,7 +139,6 @@ async function api(path, { method = 'GET', body } = {}) {
       item_name: itemName,
       required_capacity: capacity,
       zone,
-      skip_on_flag_day: 0,
       sort_order: Math.max(0, ...sameShift.map((i) => i.sort_order)) + 10,
     });
     await saveConfig();
@@ -168,7 +167,6 @@ async function api(path, { method = 'GET', body } = {}) {
       if (zone && !Object.values(ZONE).includes(zone)) bad('分區需為定點或巡查');
       item.zone = zone;
     }
-    if (body.skip_on_flag_day !== undefined) item.skip_on_flag_day = body.skip_on_flag_day ? 1 : 0;
     if (body.sort_order !== undefined) item.sort_order = Number(body.sort_order);
 
     await saveConfig();
